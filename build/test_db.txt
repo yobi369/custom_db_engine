@@ -1,0 +1,4 @@
+key1:value1
+key2:value2
+tx_key:tx_value
+rollback_key:rollback_value
