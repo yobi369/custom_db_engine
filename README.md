@@ -1,73 +1,73 @@
 # Custom Database Engine
 
-A high-performance, lightweight database engine implemented in C++.
+A lightweight, custom database engine implementation in C++ with transaction support.
 
 ## Features
-- Transaction support with rollback capability
-- Persistent storage using flat files
-- Simple key-value data model
-- Thread-safe operations
 
-## Installation
+- Key-value storage
+- Transaction support with commit/rollback
+- Simple document storage
+- Basic query capabilities
+- Schema management
+- Indexing support
+
+## Getting Started
 
 ### Prerequisites
-- CMake (version 3.28 or higher)
-- C++ compiler with C++17 support
+- C++17 compiler
+- CMake (optional)
 
-### Build Instructions
+### Building
 ```bash
-mkdir build && cd build
+mkdir build
+cd build
 cmake ..
 make
 ```
 
-## Usage
+### Running Tests
+```bash
+./test_transaction
+```
 
-### Basic Operations
+### Usage Example
 ```cpp
-#include "storage_engine.h"
+#include "include/storage_engine.h"
 
 int main() {
-    StorageEngine db("my_database.txt");
+    StorageEngine db("test_db.txt");
     
-    // Write data
+    // Basic operations
     db.write_data("key1", "value1");
-    
-    // Read data
     std::string value = db.read_data("key1");
     
-    // Delete data
-    db.delete_data("key1");
+    // Transaction example
+    db.begin_transaction();
+    db.write_data("temp_key", "temp_value");
+    db.rollback_transaction(); // Undo changes
+    
+    db.begin_transaction();
+    db.write_data("key2", "value2");
+    db.commit_transaction(); // Save changes
     
     return 0;
 }
 ```
 
-### Transactions
-```cpp
-db.begin_transaction();
-try {
-    db.write_data("key2", "value2");
-    db.commit_transaction();
-} catch (...) {
-    db.rollback_transaction();
-}
-```
+## Documentation
 
-## Testing
-
-Run the test suite:
-```bash
-./build/storage_engine_test
-```
-
-## Contributing
-
-Contributions are welcome! Please follow these guidelines:
-1. Fork the repository
-2. Create a feature branch
-3. Submit a pull request
+### StorageEngine Class
+- `write_data(key, value)`: Store key-value pair
+- `read_data(key)`: Retrieve value by key
+- `begin_transaction()`: Start a new transaction
+- `commit_transaction()`: Commit current transaction
+- `rollback_transaction()`: Rollback current transaction
 
 ## License
+MIT License - See LICENSE file for details
 
-BML
+## Contributing
+Pull requests are welcome. For major changes, please open an issue first to discuss what you would like to change.
+
+## Acknowledgements
+- JSON parsing using nlohmann/json
