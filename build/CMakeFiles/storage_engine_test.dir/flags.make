@@ -4,7 +4,7 @@
 # compile CXX with /usr/bin/c++
 CXX_DEFINES = 
 
-CXX_INCLUDES = -I/home/bml/Desktop/custom_db_engine/include -I/home/bml/Desktop/custom_db_engine/src
+CXX_INCLUDES = -I/app/include -I/app/src
 
 CXX_FLAGS = -std=gnu++17
 

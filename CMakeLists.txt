@@ -20,5 +20,3 @@ target_include_directories(storage_engine_test
     ${CMAKE_SOURCE_DIR}/src
 )
 target_link_libraries(storage_engine_test PRIVATE nlohmann_json::nlohmann_json)
-
-target_link_libraries(storage_engine_test PRIVATE nlohmann_json::nlohmann_json)
