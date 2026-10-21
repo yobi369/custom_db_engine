@@ -27,3 +27,7 @@ jobs:
         run: ctest --test-dir build -C ${{ matrix.build_type }} --output-on-failure
       - name: Install package
         run: cmake --install build --config ${{ matrix.build_type }} --prefix install
+      - name: Configure installed-package consumer
+        run: cmake -S tests/package_consumer -B consumer-build -DCMAKE_PREFIX_PATH=install -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+      - name: Build installed-package consumer
+        run: cmake --build consumer-build --config ${{ matrix.build_type }} --parallel 2
