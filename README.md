@@ -29,6 +29,15 @@ cmake --build build --config Release
 ctest --test-dir build --output-on-failure
 ```
 
+The `custom_db_engine_example` target demonstrates basic storage and integrity checking:
+
+```bash
+./build/custom_db_engine_example example.db.json
+```
+
+On multi-configuration generators such as Visual Studio, the executable is typically under `build/Debug` or `build/Release`.
+
+
 ## Quick start
 
 ```cpp
@@ -69,6 +78,24 @@ int main() {
 - `create_index` and `drop_index` configure field indexes. Matching equality queries can use a lazily built in-memory index; the index cache is not persisted and is rebuilt after restart or collection changes.
 
 Check every boolean return value and inspect `get_last_error()` after a failure. A database file should be used by only one process at a time.
+
+## Install and consume as a CMake package
+
+Install the library and headers:
+
+```bash
+cmake --install build --prefix install
+```
+
+A consuming project can then use:
+
+```cmake
+find_package(CustomDBEngine 0.2 CONFIG REQUIRED)
+target_link_libraries(my_app PRIVATE CustomDBEngine::custom_db_engine)
+```
+
+The package exports the compiled library and public headers; the JSON dependency is needed only when building this repository.
+
 
 ## Current limitations and roadmap
 
