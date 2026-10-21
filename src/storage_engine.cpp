@@ -161,6 +161,7 @@ public:
         if (ec) return fail("Cannot inspect database path: " + ec.message());
         state_ = empty_state();
         index_cache_.clear();
+        load_failed_ = false;
         if (!checkpoint_locked(state_)) return false;
         last_error_.clear();
         return true;
@@ -176,6 +177,7 @@ public:
         state_ = empty_state();
         wal_records_ = 0;
         index_cache_.clear();
+        load_failed_ = false;
         last_error_.clear();
         return true;
     }
