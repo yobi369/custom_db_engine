@@ -39,6 +39,11 @@ if(BUILD_TESTING)
   target_link_libraries(storage_engine_test PRIVATE CustomDBEngine::custom_db_engine)
   add_test(NAME storage_engine_test COMMAND storage_engine_test)
   set_tests_properties(storage_engine_test PROPERTIES WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
+
+  add_executable(property_storage_test tests/property_storage_test.cpp)
+  target_link_libraries(property_storage_test PRIVATE CustomDBEngine::custom_db_engine)
+  add_test(NAME property_storage_test COMMAND property_storage_test)
+  set_tests_properties(property_storage_test PROPERTIES WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
 endif()
 
 install(TARGETS custom_db_engine
