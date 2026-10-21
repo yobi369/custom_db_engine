@@ -1,14 +1,27 @@
 #include "storage_engine.h"
 #include <nlohmann/json.hpp>
 #include <cstdint>
+#include <cstdio>
+#include <cerrno>
 #include <filesystem>
 #include <fstream>
+#include <cstring>
 #include <iomanip>
 #include <iterator>
 #include <mutex>
 #include <sstream>
 #include <system_error>
 #include <utility>
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#include <io.h>
+#else
+#include <fcntl.h>
+#include <unistd.h>
+#endif
 namespace fs = std::filesystem;
 using json = nlohmann::json;
 namespace {
@@ -39,6 +52,31 @@ std::string checksum_text(const std::string& bytes) {
     std::ostringstream out;
     out << std::hex << std::setw(16) << std::setfill('0') << checksum(bytes);
     return out.str();
+}
+bool durable_flush(std::FILE* file) {
+    if (std::fflush(file) != 0) return false;
+#ifdef _WIN32
+    return _commit(_fileno(file)) == 0;
+#else
+    return ::fsync(::fileno(file)) == 0;
+#endif
+}
+bool sync_parent_directory(const fs::path& target) {
+#ifdef _WIN32
+    (void)target;
+    return true; // Snapshot rename uses MOVEFILE_WRITE_THROUGH on Windows.
+#else
+    const fs::path directory = target.has_parent_path() ? target.parent_path() : fs::path(".");
+    int flags = O_RDONLY;
+#ifdef O_DIRECTORY
+    flags |= O_DIRECTORY;
+#endif
+    const int fd = ::open(directory.c_str(), flags);
+    if (fd < 0) return false;
+    const bool ok = (::fsync(fd) == 0);
+    ::close(fd);
+    return ok;
+#endif
 }
 bool supported_json_type(const json& value, const std::string& type) {
     if (type == "object") return value.is_object();
@@ -323,30 +361,43 @@ private:
         if (target.has_parent_path()) fs::create_directories(target.parent_path(), ec);
         if (ec) return fail("Cannot create database directory: " + ec.message());
         const fs::path temporary = target.string() + ".tmp";
-        {
-            std::ofstream out(temporary, std::ios::binary | std::ios::trunc);
-            if (!out) return fail("Cannot open temporary database file for writing");
-            const std::string bytes = value.dump(2) + "\n";
-            out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
-            out.flush();
-            if (!out) { out.close(); fs::remove(temporary, ec); return fail("Failed while writing database snapshot"); }
+        const std::string bytes = value.dump(2) + "\n";
+        std::FILE* out = std::fopen(temporary.string().c_str(), "wb");
+        if (!out) return fail("Cannot open temporary database file for writing");
+        const bool written = std::fwrite(bytes.data(), 1, bytes.size(), out) == bytes.size();
+        const bool flushed = written && durable_flush(out);
+        const bool closed = std::fclose(out) == 0;
+        if (!written || !flushed || !closed) {
+            std::error_code cleanup_ec;
+            fs::remove(temporary, cleanup_ec);
+            return fail("Failed to write and durably flush database snapshot");
         }
+#ifdef _WIN32
+        if (!MoveFileExA(temporary.string().c_str(), target.string().c_str(),
+                         MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+            std::error_code cleanup_ec;
+            fs::remove(temporary, cleanup_ec);
+            return fail("Cannot publish database snapshot (Windows error " + std::to_string(GetLastError()) + ")");
+        }
+#else
         fs::rename(temporary, target, ec);
         if (ec) {
-            std::error_code remove_ec;
-            fs::remove(target, remove_ec);
-            ec.clear();
-            fs::rename(temporary, target, ec);
+            std::error_code cleanup_ec;
+            fs::remove(temporary, cleanup_ec);
+            return fail("Cannot publish database snapshot: " + ec.message());
         }
-        if (ec) { std::error_code cleanup_ec; fs::remove(temporary, cleanup_ec); return fail("Cannot publish database snapshot: " + ec.message()); }
+        if (!sync_parent_directory(target)) return fail("Snapshot renamed but parent directory sync failed");
+#endif
         return true;
     }
     bool checkpoint_locked(const json& value) {
         if (!write_snapshot_locked(value)) return false;
-        std::ofstream truncate(wal_path(), std::ios::binary | std::ios::trunc);
-        if (!truncate) return fail("Snapshot saved, but could not truncate WAL");
-        truncate.flush();
-        if (!truncate) return fail("Snapshot saved, but failed while truncating WAL");
+        std::FILE* wal = std::fopen(wal_path().c_str(), "wb");
+        if (!wal) return fail("Snapshot saved, but could not truncate WAL");
+        const bool flushed = durable_flush(wal);
+        const bool closed = std::fclose(wal) == 0;
+        if (!flushed || !closed) return fail("Snapshot saved, but failed to durably truncate WAL");
+        if (!sync_parent_directory(fs::path(wal_path()))) return fail("WAL truncated but parent directory sync failed");
         wal_records_ = 0;
         return true;
     }
@@ -362,11 +413,16 @@ private:
             const fs::path target(path_);
             if (target.has_parent_path()) fs::create_directories(target.parent_path(), ec);
             if (ec) return fail("Cannot create database directory: " + ec.message());
-            std::ofstream wal(wal_path(), std::ios::binary | std::ios::app);
+            const bool wal_existed = fs::exists(wal_path(), ec);
+            if (ec) return fail("Cannot inspect write-ahead log: " + ec.message());
+            std::FILE* wal = std::fopen(wal_path().c_str(), "ab");
             if (!wal) return fail("Cannot open write-ahead log for appending");
-            wal.write(record.data(), static_cast<std::streamsize>(record.size()));
-            wal.flush();
-            if (!wal) return fail("Failed while appending write-ahead log record");
+            const bool written = std::fwrite(record.data(), 1, record.size(), wal) == record.size();
+            const bool flushed = written && durable_flush(wal);
+            const bool closed = std::fclose(wal) == 0;
+            if (!written || !flushed || !closed) return fail("Failed to append and durably flush write-ahead log record");
+            if (!wal_existed && !sync_parent_directory(fs::path(wal_path())))
+                return fail("WAL record written but parent directory sync failed");
         }
         ++wal_records_;
         // Checkpoint periodically. A valid WAL record remains the recovery source if checkpointing fails.

@@ -25,7 +25,7 @@ A transaction modifies an in-memory working snapshot. Commit appends the resulti
 
 ## Explicit non-guarantees
 
-The C++ stream is flushed, but the implementation does not call platform-specific fsync/FlushFileBuffers or sync the containing directory. Consequently, it does not promise power-loss durability. Snapshot replacement fallback behavior varies by platform. The FNV checksum detects accidental record damage; it is not cryptographic authentication.
+WAL records and snapshot files are flushed using `fsync` on POSIX or `_commit` on Windows. POSIX snapshot publication also syncs the containing directory; Windows snapshot replacement uses `MOVEFILE_WRITE_THROUGH`. Filesystem, storage hardware, and platform-specific metadata behavior still affect guarantees, so the project does not claim unconditional power-loss durability on every supported setup. The FNV checksum detects accidental record damage; it is not cryptographic authentication.
 
 There is no cross-process lock, multi-instance coordination, page-oriented storage, persistent index structure, cost-aware query planner, nested/full JSON Schema enforcement, or migration tooling. Do not use this prototype as the sole copy of important data. The whole state is written into each WAL record, so log size and write cost grow with database size between checkpoints.
 
