@@ -1,13 +1,13 @@
 # Custom Database Engine
 
-A C++17 embedded database prototype with persistent key-value storage, snapshot-based writes, transactions, JSON documents, simple equality queries, schema metadata, and index metadata.
+A C++17 embedded database prototype with persistent key-value storage, write-ahead logging (WAL), snapshot checkpoints, transactions, JSON documents, simple equality queries, schema metadata, and index metadata.
 
-> **Status:** early-stage software. This release is suitable for development and experimentation, not critical production data. It uses whole-file JSON snapshots; it does not yet provide a write-ahead log, fsync-backed durability guarantees, multi-process coordination, indexed query execution, or full JSON Schema validation.
+> **Status:** early-stage software. This release is suitable for development and experimentation, not critical production data. It stores complete state snapshots in a write-ahead log and periodically checkpoints to JSON. It does not yet provide fsync-backed durability guarantees, multi-process coordination, indexed query execution, or full JSON Schema validation.
 
 ## Features
 
 - Persistent key-value records stored in a versioned JSON database file.
-- Snapshot publication through a temporary file and rename where supported by the filesystem.
+- Write-ahead log records with generation numbers and FNV-1a checksums; periodic snapshot checkpoints.
 - In-process transactions with commit and rollback.
 - JSON object document collections and simple equality filters.
 - Schema metadata storage and index metadata operations.
@@ -68,7 +68,7 @@ Check every boolean return value and inspect `get_last_error()` after a failure.
 
 ## Current limitations and roadmap
 
-1. **Storage durability:** add a write-ahead log, checksums, recovery, and platform-specific durable flushes before claiming crash-safe commits.
+1. **Storage durability:** add platform-specific durable flushes and directory synchronization before claiming power-loss durability.
 2. **Concurrency:** add explicit cross-process locking and define transaction isolation.
 3. **Query engine:** implement typed predicates, projections, ordering, limits, and real index-backed execution.
 4. **Schema enforcement:** implement a documented subset of JSON Schema and validate documents on write.

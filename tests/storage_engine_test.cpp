@@ -7,6 +7,8 @@ int main() {
     std::error_code ec;
     std::filesystem::remove(path, ec);
     std::filesystem::remove(path + ".tmp", ec);
+    std::filesystem::remove(path + ".wal", ec);
+    std::filesystem::remove(path + ".wal", ec);
     {
         StorageEngine db(path);
         assert(db.write_data("empty", ""));
@@ -59,6 +61,7 @@ int main() {
     }
     std::filesystem::remove(path, ec);
     std::filesystem::remove(path + ".tmp", ec);
+    std::filesystem::remove(path + ".wal", ec);
     std::cout << "All storage engine tests passed\n";
     return 0;
 }

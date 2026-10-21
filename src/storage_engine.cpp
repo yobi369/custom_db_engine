@@ -2,17 +2,41 @@
 #include <nlohmann/json.hpp>
 #include <filesystem>
 #include <fstream>
+#include <iomanip>
 #include <mutex>
+#include <sstream>
 #include <system_error>
 #include <utility>
 namespace fs = std::filesystem;
 using json = nlohmann::json;
 namespace {
 json empty_state() {
-    return json{{"format_version", 1}, {"kv", json::object()}, {"documents", json::object()}, {"schemas", json::object()}, {"indexes", json::array()}};
+    return json{{"format_version", 1}, {"generation", 0}, {"kv", json::object()},
+                {"documents", json::object()}, {"schemas", json::object()}, {"indexes", json::array()}};
 }
 bool valid_name(const std::string& value) {
     return !value.empty() && value.find('\0') == std::string::npos;
+}
+bool valid_state(const json& value) {
+    return value.is_object() &&
+        value.value("format_version", 0) == 1 &&
+        value.contains("generation") &&
+        value["generation"].is_number_integer() &&
+        value["generation"].get<long long>() >= 0 &&
+        value.contains("kv") && value["kv"].is_object() &&
+        value.contains("documents") && value["documents"].is_object() &&
+        value.contains("schemas") && value["schemas"].is_object() &&
+        value.contains("indexes") && value["indexes"].is_array();
+}
+std::uint64_t checksum(const std::string& bytes) {
+    std::uint64_t hash = 14695981039346656037ULL;
+    for (unsigned char c : bytes) { hash ^= c; hash *= 1099511628211ULL; }
+    return hash;
+}
+std::string checksum_text(const std::string& bytes) {
+    std::ostringstream out;
+    out << std::hex << std::setw(16) << std::setfill('0') << checksum(bytes);
+    return out.str();
 }
 }
 class StorageEngine::Impl {
@@ -26,19 +50,23 @@ public:
         std::lock_guard<std::mutex> lock(mutex_);
         if (path_.empty()) return fail("Database path must not be empty");
         std::error_code ec;
-        if (fs::exists(path_, ec)) return fail("Database already exists");
+        if (fs::exists(path_, ec) || fs::exists(wal_path(), ec)) return fail("Database already exists");
         if (ec) return fail("Cannot inspect database path: " + ec.message());
         state_ = empty_state();
-        return persist_locked(state_);
+        if (!checkpoint_locked(state_)) return false;
+        last_error_.clear();
+        return true;
     }
     bool delete_database() {
         std::lock_guard<std::mutex> lock(mutex_);
         if (in_transaction_) return fail("Cannot delete database during a transaction");
-        std::error_code ec;
-        const bool removed = fs::remove(path_, ec);
-        if (ec) return fail("Cannot delete database: " + ec.message());
-        if (!removed) return fail("Database file does not exist");
+        std::error_code ec1, ec2;
+        const bool snapshot_removed = fs::remove(path_, ec1);
+        const bool wal_removed = fs::remove(wal_path(), ec2);
+        if (ec1 || ec2) return fail("Cannot delete database: " + (ec1 ? ec1.message() : ec2.message()));
+        if (!snapshot_removed && !wal_removed) return fail("Database file does not exist");
         state_ = empty_state();
+        wal_records_ = 0;
         last_error_.clear();
         return true;
     }
@@ -51,6 +79,7 @@ public:
     }
     std::string read_data(const std::string& key) {
         std::lock_guard<std::mutex> lock(mutex_);
+        if (load_failed_) return {};
         const json& view = readable_state_locked();
         auto it = view["kv"].find(key);
         if (it == view["kv"].end()) { fail("Key not found: " + key); return {}; }
@@ -79,6 +108,7 @@ public:
     std::vector<std::string> query_documents(const std::string& collection, const std::map<std::string, std::string>& filters) {
         std::lock_guard<std::mutex> lock(mutex_);
         std::vector<std::string> result;
+        if (load_failed_) return result;
         const json& view = readable_state_locked();
         auto coll = view["documents"].find(collection);
         if (coll == view["documents"].end()) { last_error_.clear(); return result; }
@@ -117,6 +147,7 @@ public:
     }
     bool begin_transaction() {
         std::lock_guard<std::mutex> lock(mutex_);
+        if (load_failed_) return fail("Database failed to load; refusing transaction");
         if (in_transaction_) return fail("Transaction already in progress");
         transaction_state_ = state_;
         in_transaction_ = true;
@@ -146,6 +177,7 @@ public:
         return last_error_;
     }
 private:
+    std::string wal_path() const { return path_ + ".wal"; }
     bool fail(std::string message) { last_error_ = std::move(message); return false; }
     bool set_schema(const std::string& definition, bool create) {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -164,15 +196,14 @@ private:
     json writable_state_locked() const { return in_transaction_ ? transaction_state_ : state_; }
     const json& readable_state_locked() const { return in_transaction_ ? transaction_state_ : state_; }
     bool finish_write_locked(json next) {
+        if (load_failed_) return fail("Database failed to load; refusing to overwrite the existing file");
         if (in_transaction_) { transaction_state_ = std::move(next); last_error_.clear(); return true; }
         if (!persist_locked(next)) return false;
         state_ = std::move(next);
         last_error_.clear();
         return true;
     }
-    bool persist_locked(const json& value) {
-        if (load_failed_) return fail("Database failed to load; refusing to overwrite the existing file");
-        if (path_.empty()) return fail("Database path must not be empty");
+    bool write_snapshot_locked(const json& value) {
         const fs::path target(path_);
         std::error_code ec;
         if (target.has_parent_path()) fs::create_directories(target.parent_path(), ec);
@@ -184,24 +215,83 @@ private:
             const std::string bytes = value.dump(2) + "\n";
             out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
             out.flush();
-            if (!out) {
-                out.close();
-                fs::remove(temporary, ec);
-                return fail("Failed while writing database snapshot");
-            }
+            if (!out) { out.close(); fs::remove(temporary, ec); return fail("Failed while writing database snapshot"); }
         }
         fs::rename(temporary, target, ec);
         if (ec) {
-            // Replacement rename differs across platforms. This fallback is not crash-atomic.
             std::error_code remove_ec;
             fs::remove(target, remove_ec);
             ec.clear();
             fs::rename(temporary, target, ec);
         }
-        if (ec) {
-            std::error_code cleanup_ec;
-            fs::remove(temporary, cleanup_ec);
-            return fail("Cannot publish database snapshot: " + ec.message());
+        if (ec) { std::error_code cleanup_ec; fs::remove(temporary, cleanup_ec); return fail("Cannot publish database snapshot: " + ec.message()); }
+        return true;
+    }
+    bool checkpoint_locked(const json& value) {
+        if (!write_snapshot_locked(value)) return false;
+        std::ofstream truncate(wal_path(), std::ios::binary | std::ios::trunc);
+        if (!truncate) return fail("Snapshot saved, but could not truncate WAL");
+        truncate.flush();
+        if (!truncate) return fail("Snapshot saved, but failed while truncating WAL");
+        wal_records_ = 0;
+        return true;
+    }
+    bool persist_locked(json& value) {
+        if (load_failed_) return fail("Database failed to load; refusing to overwrite the existing file");
+        if (path_.empty()) return fail("Database path must not be empty");
+        const auto current_generation = state_.value("generation", std::uint64_t{0});
+        value["generation"] = current_generation + 1;
+        const std::string payload = value.dump();
+        const std::string record = std::to_string(value["generation"].get<std::uint64_t>()) + " " + checksum_text(payload) + " " + payload + "\n";
+        {
+            std::error_code ec;
+            const fs::path target(path_);
+            if (target.has_parent_path()) fs::create_directories(target.parent_path(), ec);
+            if (ec) return fail("Cannot create database directory: " + ec.message());
+            std::ofstream wal(wal_path(), std::ios::binary | std::ios::app);
+            if (!wal) return fail("Cannot open write-ahead log for appending");
+            wal.write(record.data(), static_cast<std::streamsize>(record.size()));
+            wal.flush();
+            if (!wal) return fail("Failed while appending write-ahead log record");
+        }
+        ++wal_records_;
+        // Checkpoint periodically. A valid WAL record remains the recovery source if checkpointing fails.
+        if (wal_records_ >= 64) {
+            const std::string previous_error = last_error_;
+            if (!checkpoint_locked(value)) last_error_ = previous_error;
+        }
+        return true;
+    }
+    bool load_wal_locked() {
+        std::ifstream in(wal_path(), std::ios::binary);
+        if (!in) return true;
+        std::string bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        std::size_t start = 0;
+        while (true) {
+            const std::size_t end = bytes.find('\n', start);
+            if (end == std::string::npos) break; // Ignore an incomplete trailing record.
+            const std::string line = bytes.substr(start, end - start);
+            start = end + 1;
+            if (line.empty()) continue;
+            const auto first = line.find(' ');
+            const auto second = first == std::string::npos ? first : line.find(' ', first + 1);
+            if (first == std::string::npos || second == std::string::npos)
+                return fail("Malformed write-ahead log record");
+            const std::string generation_text = line.substr(0, first);
+            const std::string expected_checksum = line.substr(first + 1, second - first - 1);
+            const std::string payload = line.substr(second + 1);
+            if (checksum_text(payload) != expected_checksum) return fail("Write-ahead log checksum mismatch");
+            json recovered;
+            try { recovered = json::parse(payload); }
+            catch (const std::exception& e) { return fail(std::string("Invalid write-ahead log payload: ") + e.what()); }
+            if (!valid_state(recovered)) return fail("Unsupported or malformed state in write-ahead log");
+            std::uint64_t record_generation = 0;
+            try { record_generation = static_cast<std::uint64_t>(std::stoull(generation_text)); }
+            catch (...) { return fail("Invalid write-ahead log generation"); }
+            if (record_generation != recovered["generation"].get<std::uint64_t>())
+                return fail("Write-ahead log generation mismatch");
+            ++wal_records_;
+            if (record_generation > state_.value("generation", std::uint64_t{0})) state_ = std::move(recovered);
         }
         return true;
     }
@@ -210,22 +300,18 @@ private:
         std::error_code ec;
         const bool exists = fs::exists(path_, ec);
         if (ec) { fail("Cannot inspect database path: " + ec.message()); return; }
-        if (!exists) return;
-        std::ifstream in(path_, std::ios::binary);
-        if (!in) { fail("Cannot open database file"); return; }
-        try {
-            json loaded;
-            in >> loaded;
-            if (!loaded.is_object() || loaded.value("format_version", 0) != 1 ||
-                !loaded.contains("kv") || !loaded["kv"].is_object() ||
-                !loaded.contains("documents") || !loaded["documents"].is_object() ||
-                !loaded.contains("schemas") || !loaded["schemas"].is_object() ||
-                !loaded.contains("indexes") || !loaded["indexes"].is_array()) {
-                fail("Invalid or unsupported database file format"); return;
-            }
-            state_ = std::move(loaded);
-            last_error_.clear();
-        } catch (const std::exception& e) { fail(std::string("Cannot load database file: ") + e.what()); }
+        if (exists) {
+            std::ifstream in(path_, std::ios::binary);
+            if (!in) { fail("Cannot open database file"); return; }
+            try {
+                json loaded;
+                in >> loaded;
+                if (!valid_state(loaded)) { fail("Invalid or unsupported database file format"); return; }
+                state_ = std::move(loaded);
+            } catch (const std::exception& e) { fail(std::string("Cannot load database file: ") + e.what()); return; }
+        }
+        if (!load_wal_locked()) return;
+        last_error_.clear();
     }
     std::string path_;
     mutable std::mutex mutex_;
@@ -233,6 +319,7 @@ private:
     json transaction_state_;
     bool in_transaction_ = false;
     bool load_failed_ = false;
+    std::size_t wal_records_ = 0;
     std::string last_error_;
 };
 StorageEngine::StorageEngine(const std::string& path) : pimpl(std::make_unique<Impl>(path)) {}
