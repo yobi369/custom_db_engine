@@ -14,6 +14,9 @@ public:
     StorageEngine& operator=(StorageEngine&&) = delete;
     bool create_database();
     bool delete_database();
+    bool backup_database(const std::string& backup_path);
+    bool restore_database(const std::string& backup_path);
+    bool check_integrity();
     bool write_data(const std::string& key, const std::string& value);
     std::string read_data(const std::string& key);
     bool delete_data(const std::string& key);

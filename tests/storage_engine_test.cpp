@@ -6,6 +6,7 @@
 #define CHECK(condition) do { if (!(condition)) { std::cerr << "CHECK failed at line " << __LINE__ << ": " #condition << '\n'; return 1; } } while (false)
 int main() {
     const std::string path = "storage_engine_test_db.json";
+    const std::string backup = "storage_engine_test_backup.json";
     std::error_code ec;
     std::filesystem::remove(path, ec);
     std::filesystem::remove(path + ".tmp", ec);
@@ -50,6 +51,12 @@ int main() {
         CHECK(db.drop_index("name"));
         CHECK(db.delete_data("beta"));
         CHECK(!db.delete_data("missing"));
+        CHECK(db.check_integrity());
+        CHECK(db.backup_database(backup));
+        CHECK(db.write_data("alpha", "changed-after-backup"));
+        CHECK(db.restore_database(backup));
+        CHECK(db.read_data("alpha") == "two");
+        CHECK(db.check_integrity());
     }
     { std::ofstream tail(path + ".wal", std::ios::binary | std::ios::app); tail << "incomplete-record"; }
     {
@@ -82,6 +89,8 @@ int main() {
     std::filesystem::remove(path, ec);
     std::filesystem::remove(path + ".tmp", ec);
     std::filesystem::remove(path + ".wal", ec);
+    std::filesystem::remove(backup, ec);
+    std::filesystem::remove(backup + ".tmp", ec);
     std::cout << "All storage engine tests passed\n";
     return 0;
 }
