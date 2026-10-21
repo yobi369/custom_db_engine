@@ -1,52 +1,64 @@
-#include "../include/storage_engine.h"
-#include <iostream>
+#include "storage_engine.h"
 #include <cassert>
-#include <map>
-
+#include <filesystem>
+#include <iostream>
 int main() {
-    StorageEngine engine("test_db.txt");
-    
-    // Test database operations
-    assert(engine.create_database());
-    
-    // Test key-value operations
-    assert(engine.write_data("key1", "value1"));
-    assert(engine.write_data("key2", "value2"));
-    assert(engine.read_data("key1") == "value1");
-    assert(engine.read_data("key2") == "value2");
-    assert(engine.read_data("key3").empty());
-    
-    // Test document model
-    assert(engine.write_document("users", R"({"name": "Alice", "age": 30})"));
-    assert(engine.write_document("users", R"({"name": "Bob", "age": 25})"));
-    
-    std::map<std::string, std::string> filters = {{"name", "Alice"}};
-    auto results = engine.query_documents("users", filters);
-    assert(results.size() == 1);
-    assert(results[0] == R"({"name": "Alice", "age": 30})");
-    
-    // Test schema management
-    std::string schema = R"({"type": "object", "properties": {"name": {"type": "string"}}})";
-    assert(engine.create_schema(schema));
-    assert(engine.update_schema(schema));
-    
-    // Test indexing
-    assert(engine.create_index("name"));
-    assert(engine.drop_index("name"));
-    
-    // Test transactions
-    assert(engine.begin_transaction());
-    assert(engine.write_data("tx_key", "tx_value"));
-    assert(engine.commit_transaction());
-    
-    assert(engine.begin_transaction());
-    assert(engine.write_data("rollback_key", "rollback_value"));
-    assert(engine.rollback_transaction());
-    assert(engine.read_data("rollback_key").empty());
-    
-    // Test database deletion
-    assert(engine.delete_database());
-    
-    std::cout << "All storage engine tests passed!\n";
+    const std::string path = "storage_engine_test_db.json";
+    std::error_code ec;
+    std::filesystem::remove(path, ec);
+    std::filesystem::remove(path + ".tmp", ec);
+    {
+        StorageEngine db(path);
+        assert(db.write_data("empty", ""));
+        assert(db.read_data("empty").empty());
+        assert(db.get_last_error().empty());
+        assert(db.write_data("alpha", "one"));
+        assert(db.write_data("alpha", "two"));
+        assert(db.read_data("alpha") == "two");
+        assert(db.begin_transaction());
+        assert(!db.begin_transaction());
+        assert(db.write_data("alpha", "transactional"));
+        assert(db.read_data("alpha") == "transactional");
+        assert(db.rollback_transaction());
+        assert(db.read_data("alpha") == "two");
+        assert(db.begin_transaction());
+        assert(db.write_data("beta", "durable"));
+        assert(db.commit_transaction());
+        assert(db.read_data("beta") == "durable");
+        assert(db.write_document("users", R"({"name":"Alice","age":30})"));
+        assert(db.write_document("users", R"({"name":"Bob","age":25})"));
+        const auto results = db.query_documents("users", {{"name", "Alice"}});
+        assert(results.size() == 1);
+        assert(results.front() == R"({"age":30,"name":"Alice"})");
+        assert(!db.write_document("users", "not json"));
+        assert(db.create_schema(R"({"collection":"users","type":"object"})"));
+        assert(!db.create_schema(R"({"collection":"users","type":"object"})"));
+        assert(db.update_schema(R"({"collection":"users","type":"object","version":2})"));
+        assert(db.create_index("name"));
+        assert(!db.create_index("name"));
+        assert(db.drop_index("name"));
+        assert(db.delete_data("beta"));
+        assert(!db.delete_data("missing"));
+    }
+    {
+        StorageEngine reopened(path);
+        assert(reopened.read_data("alpha") == "two");
+        assert(reopened.read_data("beta").empty());
+        assert(reopened.get_last_error().find("Key not found") != std::string::npos);
+        assert(reopened.query_documents("users", {{"name", "Bob"}}).size() == 1);
+    }
+    {
+        StorageEngine db(path);
+        assert(db.begin_transaction());
+        assert(db.write_data("never_committed", "x"));
+        assert(db.rollback_transaction());
+    }
+    {
+        StorageEngine reopened(path);
+        assert(reopened.read_data("never_committed").empty());
+    }
+    std::filesystem::remove(path, ec);
+    std::filesystem::remove(path + ".tmp", ec);
+    std::cout << "All storage engine tests passed\n";
     return 0;
 }

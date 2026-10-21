@@ -1,24 +1,30 @@
-cmake_minimum_required(VERSION 3.10)
-project(CustomDBEngine)
-
-set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_STANDARD_REQUIRED True)
-
-# Find required packages
-find_package(nlohmann_json REQUIRED)
-
-include_directories(${CMAKE_SOURCE_DIR}/include ${CMAKE_SOURCE_DIR}/src)
-
-add_executable(storage_engine_test
-    tests/storage_engine_test.cpp
-    src/storage_engine.cpp
-)
-
-target_include_directories(storage_engine_test 
-    PUBLIC 
-    ${CMAKE_SOURCE_DIR}/include
-    ${CMAKE_SOURCE_DIR}/src
-)
-target_link_libraries(storage_engine_test PRIVATE nlohmann_json::nlohmann_json)
-
-target_link_libraries(storage_engine_test PRIVATE nlohmann_json::nlohmann_json)
+cmake_minimum_required(VERSION 3.16)
+project(CustomDBEngine VERSION 0.2.0 LANGUAGES CXX)
+include(CTest)
+find_package(nlohmann_json 3.10 QUIET)
+if(NOT nlohmann_json_FOUND)
+  include(FetchContent)
+  set(JSON_BuildTests OFF CACHE INTERNAL "")
+  FetchContent_Declare(json
+    URL https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+  FetchContent_MakeAvailable(json)
+endif()
+add_library(custom_db_engine src/storage_engine.cpp)
+add_library(CustomDBEngine::custom_db_engine ALIAS custom_db_engine)
+target_compile_features(custom_db_engine PUBLIC cxx_std_17)
+target_include_directories(custom_db_engine PUBLIC
+  $<BUILD_INTERFACE:\${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>)
+target_link_libraries(custom_db_engine PUBLIC nlohmann_json::nlohmann_json)
+if(MSVC)
+  target_compile_options(custom_db_engine PRIVATE /W4 /permissive-)
+else()
+  target_compile_options(custom_db_engine PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+if(BUILD_TESTING)
+  add_executable(storage_engine_test tests/storage_engine_test.cpp)
+  target_link_libraries(storage_engine_test PRIVATE CustomDBEngine::custom_db_engine)
+  add_test(NAME storage_engine_test COMMAND storage_engine_test)
+  set_tests_properties(storage_engine_test PROPERTIES WORKING_DIRECTORY "\${CMAKE_CURRENT_BINARY_DIR}")
+endif()
