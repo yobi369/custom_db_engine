@@ -13,6 +13,13 @@ int main() {
     std::filesystem::remove(path + ".wal", ec);
     {
         StorageEngine db(path);
+        {
+            StorageEngine competing(path);
+            CHECK(competing.get_last_error().find("already open") != std::string::npos);
+            CHECK(!competing.create_database());
+            CHECK(!competing.delete_database());
+            CHECK(!competing.write_data("must_not_write", "x"));
+        }
         CHECK(db.write_data("empty", ""));
         CHECK(db.read_data("empty").empty());
         CHECK(db.get_last_error().empty());

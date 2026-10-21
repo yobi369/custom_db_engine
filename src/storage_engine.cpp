@@ -11,6 +11,13 @@
 #include <iterator>
 #include <mutex>
 #include <sstream>
+#include <limits>
+#include <set>
+#ifdef _WIN32
+#include <sys/stat.h>
+#else
+#include <sys/file.h>
+#endif
 #include <system_error>
 #include <utility>
 #ifdef _WIN32
@@ -33,16 +40,57 @@ json empty_state() {
 bool valid_name(const std::string& value) {
     return !value.empty() && value.find('\0') == std::string::npos;
 }
+bool validate_schema_definition(const json& schema, std::string& error);
 bool valid_state(const json& value) {
-    return value.is_object() &&
-        value.value("format_version", 0) == 1 &&
-        value.contains("generation") &&
-        value["generation"].is_number_integer() &&
-        value["generation"].get<long long>() >= 0 &&
-        value.contains("kv") && value["kv"].is_object() &&
-        value.contains("documents") && value["documents"].is_object() &&
-        value.contains("schemas") && value["schemas"].is_object() &&
-        value.contains("indexes") && value["indexes"].is_array();
+    try {
+        if (!value.is_object() || !value.contains("format_version") ||
+            !value["format_version"].is_number_integer() ||
+            value["format_version"].get<int>() != 1 ||
+            !value.contains("generation") ||
+            !value["generation"].is_number_integer() ||
+            !value.contains("kv") || !value["kv"].is_object() ||
+            !value.contains("documents") || !value["documents"].is_object() ||
+            !value.contains("schemas") || !value["schemas"].is_object() ||
+            !value.contains("indexes") || !value["indexes"].is_array()) return false;
+
+        std::uint64_t generation = 0;
+        if (value["generation"].is_number_unsigned()) {
+            generation = value["generation"].get<std::uint64_t>();
+        } else {
+            const auto signed_generation = value["generation"].get<std::int64_t>();
+            if (signed_generation < 0) return false;
+            generation = static_cast<std::uint64_t>(signed_generation);
+        }
+        if (generation == std::numeric_limits<std::uint64_t>::max()) return false;
+
+        for (auto it = value["kv"].begin(); it != value["kv"].end(); ++it)
+            if (!it.value().is_string()) return false;
+
+        for (auto it = value["documents"].begin(); it != value["documents"].end(); ++it) {
+            if (!it.value().is_array()) return false;
+            for (const auto& document : it.value())
+                if (!document.is_object()) return false;
+        }
+
+        for (auto it = value["schemas"].begin(); it != value["schemas"].end(); ++it) {
+            if (!it.value().is_object()) return false;
+            std::string schema_error;
+            if (!validate_schema_definition(it.value(), schema_error)) return false;
+            if (it.value().contains("collection") &&
+                (!it.value()["collection"].is_string() ||
+                 it.value()["collection"].get<std::string>() != it.key())) return false;
+        }
+
+        std::set<std::string> index_names;
+        for (const auto& index : value["indexes"]) {
+            if (!index.is_string()) return false;
+            const auto name = index.get<std::string>();
+            if (!valid_name(name) || !index_names.insert(name).second) return false;
+        }
+        return true;
+    } catch (const std::exception&) {
+        return false;
+    }
 }
 std::uint64_t checksum(const std::string& bytes) {
     std::uint64_t hash = 14695981039346656037ULL;
@@ -149,13 +197,36 @@ bool validate_document_against_schema(const json& document, const json& schema, 
 }
 class StorageEngine::Impl {
 public:
-    explicit Impl(std::string path) : path_(std::move(path)), state_(empty_state()) {
+    explicit Impl(std::string path, bool acquire_process_lock = true) : path_(std::move(path)), state_(empty_state()) {
         std::lock_guard<std::mutex> lock(mutex_);
+        if (path_.empty()) {
+            fail("Database path must not be empty");
+            load_failed_ = true;
+            return;
+        }
+        if (acquire_process_lock && !acquire_lock_locked()) {
+            load_failed_ = true;
+            return;
+        }
         load_locked();
         load_failed_ = !last_error_.empty();
     }
+    ~Impl() {
+#ifdef _WIN32
+        if (lock_handle_ != INVALID_HANDLE_VALUE) {
+            if (lock_held_) UnlockFileEx(lock_handle_, 0, MAXDWORD, MAXDWORD, &lock_overlapped_);
+            CloseHandle(lock_handle_);
+        }
+#else
+        if (lock_fd_ >= 0) {
+            if (lock_held_) (void)::flock(lock_fd_, LOCK_UN);
+            (void)::close(lock_fd_);
+        }
+#endif
+    }
     bool create_database() {
         std::lock_guard<std::mutex> lock(mutex_);
+        if (load_failed_) return fail("Database failed to load or acquire its exclusive lock; refusing to create or overwrite files");
         if (path_.empty()) return fail("Database path must not be empty");
         std::error_code ec;
         if (fs::exists(path_, ec) || fs::exists(wal_path(), ec)) return fail("Database already exists");
@@ -169,6 +240,7 @@ public:
     }
     bool delete_database() {
         std::lock_guard<std::mutex> lock(mutex_);
+        if (load_failed_) return fail("Database failed to load or acquire its exclusive lock; refusing to delete files");
         if (in_transaction_) return fail("Cannot delete database during a transaction");
         std::error_code ec1, ec2;
         const bool snapshot_removed = fs::remove(path_, ec1);
@@ -184,6 +256,7 @@ public:
     }
     bool backup_database(const std::string& backup_path) {
         std::lock_guard<std::mutex> lock(mutex_);
+        if (load_failed_) return fail("Database failed to load or acquire its exclusive lock; refusing to create a backup");
         if (in_transaction_) return fail("Cannot back up an uncommitted transaction");
         if (backup_path.empty()) return fail("Backup path must not be empty");
         std::error_code ec;
@@ -219,7 +292,10 @@ public:
         if (!valid_state(restored)) return fail("Backup has an invalid or unsupported database format");
         const auto current_generation = state_.value("generation", std::uint64_t{0});
         const auto backup_generation = restored.value("generation", std::uint64_t{0});
-        restored["generation"] = std::max(current_generation, backup_generation) + 1;
+        const auto base_generation = std::max(current_generation, backup_generation);
+        if (base_generation >= std::numeric_limits<std::uint64_t>::max() - 1)
+            return fail("Database generation counter is exhausted; restore cannot safely advance it");
+        restored["generation"] = base_generation + 1;
         if (!write_snapshot_locked(restored)) return false;
         state_ = std::move(restored);
         transaction_state_ = json();
@@ -232,7 +308,7 @@ public:
         std::lock_guard<std::mutex> lock(mutex_);
         if (in_transaction_) return fail("Cannot check on-disk integrity during a transaction");
         if (load_failed_) return fail("Database load failed: " + last_error_);
-        Impl verifier(path_);
+        Impl verifier(path_, false);
         if (verifier.load_failed_) return fail("On-disk integrity check failed: " + verifier.last_error_);
         if (verifier.state_ != state_) return fail("On-disk database state differs from the loaded state");
         last_error_.clear();
@@ -387,6 +463,43 @@ public:
     }
 private:
     std::string wal_path() const { return path_ + ".wal"; }
+    bool acquire_lock_locked() {
+        const fs::path lock_path(path_ + ".lock");
+        std::error_code ec;
+        if (lock_path.has_parent_path()) fs::create_directories(lock_path.parent_path(), ec);
+        if (ec) return fail("Cannot create database directory for lock: " + ec.message());
+#ifdef _WIN32
+        lock_handle_ = CreateFileA(lock_path.string().c_str(), GENERIC_READ | GENERIC_WRITE,
+                                   FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_ALWAYS,
+                                   FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (lock_handle_ == INVALID_HANDLE_VALUE)
+            return fail("Cannot open database lock file (Windows error " + std::to_string(GetLastError()) + ")");
+        if (!LockFileEx(lock_handle_, LOCKFILE_EXCLUSIVE_LOCK | LOCKFILE_FAIL_IMMEDIATELY,
+                        0, MAXDWORD, MAXDWORD, &lock_overlapped_))
+            return fail("Database is already open by another StorageEngine instance (Windows error " + std::to_string(GetLastError()) + ")");
+#else
+        lock_fd_ = ::open(lock_path.c_str(), O_CREAT | O_RDWR, 0666);
+        if (lock_fd_ < 0) return fail("Cannot open database lock file: " + std::string(std::strerror(errno)));
+        if (::flock(lock_fd_, LOCK_EX | LOCK_NB) != 0)
+            return fail("Database is already open by another StorageEngine instance: " + std::string(std::strerror(errno)));
+#endif
+        lock_held_ = true;
+        return true;
+    }
+    bool truncate_wal_locked(std::size_t length) {
+        std::FILE* wal = std::fopen(wal_path().c_str(), "r+b");
+        if (!wal) return fail("Cannot open write-ahead log to remove incomplete trailing record");
+#ifdef _WIN32
+        const bool resized = _chsize_s(_fileno(wal), static_cast<__int64>(length)) == 0;
+#else
+        const bool resized = ::ftruncate(::fileno(wal), static_cast<off_t>(length)) == 0;
+#endif
+        const bool flushed = resized && durable_flush(wal);
+        const bool closed = std::fclose(wal) == 0;
+        if (!resized || !flushed || !closed)
+            return fail("Cannot durably remove incomplete trailing WAL record");
+        return true;
+    }
     bool fail(std::string message) { last_error_ = std::move(message); return false; }
     bool set_schema(const std::string& definition, bool create) {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -466,6 +579,8 @@ private:
         if (load_failed_) return fail("Database failed to load; refusing to overwrite the existing file");
         if (path_.empty()) return fail("Database path must not be empty");
         const auto current_generation = state_.value("generation", std::uint64_t{0});
+        if (current_generation >= std::numeric_limits<std::uint64_t>::max() - 1)
+            return fail("Database generation counter is exhausted; refusing to wrap the generation");
         value["generation"] = current_generation + 1;
         const std::string payload = value.dump();
         const std::string record = std::to_string(value["generation"].get<std::uint64_t>()) + " " + checksum_text(payload) + " " + payload + "\n";
@@ -495,13 +610,22 @@ private:
     }
     bool load_wal_locked() {
         std::ifstream in(wal_path(), std::ios::binary);
-        if (!in) return true;
+        if (!in) {
+            std::error_code ec;
+            if (!fs::exists(wal_path(), ec) && !ec) return true;
+            return fail("Cannot open write-ahead log for recovery");
+        }
         std::string bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
         in.close();
         std::size_t start = 0;
         while (true) {
             const std::size_t end = bytes.find('\n', start);
-            if (end == std::string::npos) break; // Ignore an incomplete trailing record.
+            if (end == std::string::npos) {
+                // Remove the torn tail before accepting future appends; otherwise the next
+                // valid record would be concatenated to the damaged bytes.
+                if (start < bytes.size() && !truncate_wal_locked(start)) return false;
+                break;
+            }
             const std::string line = bytes.substr(start, end - start);
             start = end + 1;
             if (line.empty()) continue;
@@ -547,6 +671,13 @@ private:
     }
     using CachedIndex = std::map<std::string, std::vector<std::size_t>>;
     std::string path_;
+#ifdef _WIN32
+    HANDLE lock_handle_ = INVALID_HANDLE_VALUE;
+    OVERLAPPED lock_overlapped_{};
+#else
+    int lock_fd_ = -1;
+#endif
+    bool lock_held_ = false;
     mutable std::mutex mutex_;
     std::map<std::string, std::map<std::string, CachedIndex>> index_cache_;
     json state_;
