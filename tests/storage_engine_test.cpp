@@ -60,6 +60,16 @@ int main() {
         StorageEngine reopened(path);
         assert(reopened.read_data("never_committed").empty());
     }
+    {
+        StorageEngine db(path);
+        for (int i = 0; i < 70; ++i) {
+            assert(db.write_data("bulk" + std::to_string(i), "value" + std::to_string(i)));
+        }
+    }
+    {
+        StorageEngine reopened(path);
+        assert(reopened.read_data("bulk69") == "value69");
+    }
     std::filesystem::remove(path, ec);
     std::filesystem::remove(path + ".tmp", ec);
     std::filesystem::remove(path + ".wal", ec);
