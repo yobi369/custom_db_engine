@@ -40,6 +40,73 @@ std::string checksum_text(const std::string& bytes) {
     out << std::hex << std::setw(16) << std::setfill('0') << checksum(bytes);
     return out.str();
 }
+bool supported_json_type(const json& value, const std::string& type) {
+    if (type == "object") return value.is_object();
+    if (type == "array") return value.is_array();
+    if (type == "string") return value.is_string();
+    if (type == "number") return value.is_number();
+    if (type == "integer") return value.is_number_integer();
+    if (type == "boolean") return value.is_boolean();
+    if (type == "null") return value.is_null();
+    return false;
+}
+bool validate_schema_definition(const json& schema, std::string& error) {
+    if (schema.contains("type") && (!schema["type"].is_string() || schema["type"] != "object")) {
+        error = "top-level schema type must be object";
+        return false;
+    }
+    if (schema.contains("required")) {
+        if (!schema["required"].is_array()) { error = "required must be an array"; return false; }
+        for (const auto& field : schema["required"]) {
+            if (!field.is_string()) { error = "required entries must be strings"; return false; }
+        }
+    }
+    if (schema.contains("properties")) {
+        if (!schema["properties"].is_object()) { error = "properties must be an object"; return false; }
+        for (auto it = schema["properties"].begin(); it != schema["properties"].end(); ++it) {
+            if (!it.value().is_object()) { error = "each property schema must be an object"; return false; }
+            if (it.value().contains("type")) {
+                if (!it.value()["type"].is_string()) { error = "property type must be a string"; return false; }
+                const auto type = it.value()["type"].get<std::string>();
+                if (type != "object" && type != "array" && type != "string" && type != "number" &&
+                    type != "integer" && type != "boolean" && type != "null") {
+                    error = "unsupported property type: " + type;
+                    return false;
+                }
+            }
+        }
+    }
+    if (schema.contains("additionalProperties") && !schema["additionalProperties"].is_boolean()) {
+        error = "additionalProperties must be a boolean";
+        return false;
+    }
+    return true;
+}
+bool validate_document_against_schema(const json& document, const json& schema, std::string& error) {
+    if (schema.contains("required")) {
+        for (const auto& required : schema["required"]) {
+            const auto name = required.get<std::string>();
+            if (!document.contains(name)) { error = "missing required field: " + name; return false; }
+        }
+    }
+    if (schema.contains("properties") && schema["properties"].is_object()) {
+        const auto& properties = schema["properties"];
+        for (auto it = properties.begin(); it != properties.end(); ++it) {
+            if (!document.contains(it.key()) || !it.value().contains("type")) continue;
+            const auto type = it.value()["type"].get<std::string>();
+            if (!supported_json_type(document[it.key()], type)) {
+                error = "field '" + it.key() + "' must have type " + type;
+                return false;
+            }
+        }
+        if (schema.value("additionalProperties", true) == false) {
+            for (auto it = document.begin(); it != document.end(); ++it) {
+                if (!properties.contains(it.key())) { error = "unexpected field: " + it.key(); return false; }
+            }
+        }
+    }
+    return true;
+}
 }
 class StorageEngine::Impl {
 public:
@@ -103,6 +170,12 @@ public:
         catch (const std::exception& e) { return fail(std::string("Invalid JSON document: ") + e.what()); }
         if (!document.is_object()) return fail("Documents must be JSON objects");
         json next = writable_state_locked();
+        auto schema_it = next["schemas"].find(collection);
+        if (schema_it != next["schemas"].end()) {
+            std::string validation_error;
+            if (!validate_document_against_schema(document, *schema_it, validation_error))
+                return fail("Schema validation failed: " + validation_error);
+        }
         if (!next["documents"].contains(collection)) next["documents"][collection] = json::array();
         next["documents"][collection].push_back(document);
         return finish_write_locked(std::move(next));
@@ -187,6 +260,8 @@ private:
         try { schema = json::parse(definition); }
         catch (const std::exception& e) { return fail(std::string("Invalid schema JSON: ") + e.what()); }
         if (!schema.is_object()) return fail("Schema definition must be a JSON object");
+        std::string schema_error;
+        if (!validate_schema_definition(schema, schema_error)) return fail("Invalid schema: " + schema_error);
         const std::string name = schema.value("collection", std::string("default"));
         if (!valid_name(name)) return fail("Schema collection name must not be empty");
         json next = writable_state_locked();

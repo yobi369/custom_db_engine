@@ -37,6 +37,11 @@ int main() {
         CHECK(db.create_schema(R"({"collection":"users","type":"object"})"));
         CHECK(!db.create_schema(R"({"collection":"users","type":"object"})"));
         CHECK(db.update_schema(R"({"collection":"users","type":"object","version":2})"));
+        CHECK(db.create_schema(R"({"collection":"validated","type":"object","required":["name"],"properties":{"name":{"type":"string"},"age":{"type":"integer"}},"additionalProperties":false})"));
+        CHECK(!db.write_document("validated", R"({"age":5})"));
+        CHECK(!db.write_document("validated", R"({"name":12,"age":5})"));
+        CHECK(!db.write_document("validated", R"({"name":"Ada","extra":true})"));
+        CHECK(db.write_document("validated", R"({"name":"Ada","age":5})"));
         CHECK(db.create_index("name"));
         CHECK(!db.create_index("name"));
         CHECK(db.drop_index("name"));
