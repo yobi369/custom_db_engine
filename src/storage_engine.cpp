@@ -1,4 +1,5 @@
 #include "storage_engine.h"
+#include <algorithm>
 #include <nlohmann/json.hpp>
 #include <cstdint>
 #include <cstdio>
@@ -181,6 +182,62 @@ public:
         last_error_.clear();
         return true;
     }
+    bool backup_database(const std::string& backup_path) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (in_transaction_) return fail("Cannot back up an uncommitted transaction");
+        if (backup_path.empty()) return fail("Backup path must not be empty");
+        std::error_code ec;
+        const auto target = fs::absolute(backup_path, ec).lexically_normal();
+        if (ec) return fail("Cannot resolve backup path: " + ec.message());
+        const auto active = fs::absolute(path_, ec).lexically_normal();
+        if (ec) return fail("Cannot resolve database path: " + ec.message());
+        const auto active_wal = fs::absolute(wal_path(), ec).lexically_normal();
+        if (ec) return fail("Cannot resolve WAL path: " + ec.message());
+        if (target == active || target == active_wal || target == fs::absolute(path_ + ".tmp", ec).lexically_normal())
+            return fail("Backup path must not overlap the active database files");
+        if (!write_snapshot_to_path_locked(target, state_)) return false;
+        last_error_.clear();
+        return true;
+    }
+    bool restore_database(const std::string& backup_path) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (in_transaction_) return fail("Cannot restore during a transaction");
+        if (load_failed_) return fail("Cannot restore over an unreadable database; repair or remove the active files first");
+        if (backup_path.empty()) return fail("Backup path must not be empty");
+        std::error_code ec;
+        const auto source = fs::absolute(backup_path, ec).lexically_normal();
+        if (ec) return fail("Cannot resolve backup path: " + ec.message());
+        const auto active = fs::absolute(path_, ec).lexically_normal();
+        if (ec) return fail("Cannot resolve database path: " + ec.message());
+        if (source == active || source == fs::absolute(wal_path(), ec).lexically_normal())
+            return fail("Backup path must be separate from the active database");
+        std::ifstream in(source, std::ios::binary);
+        if (!in) return fail("Cannot open backup file");
+        json restored;
+        try { in >> restored; }
+        catch (const std::exception& e) { return fail(std::string("Cannot parse backup file: ") + e.what()); }
+        if (!valid_state(restored)) return fail("Backup has an invalid or unsupported database format");
+        const auto current_generation = state_.value("generation", std::uint64_t{0});
+        const auto backup_generation = restored.value("generation", std::uint64_t{0});
+        restored["generation"] = std::max(current_generation, backup_generation) + 1;
+        if (!write_snapshot_locked(restored)) return false;
+        state_ = std::move(restored);
+        transaction_state_ = json();
+        in_transaction_ = false;
+        // Older WAL records are ignored because the restored snapshot has a newer generation.
+        last_error_.clear();
+        return true;
+    }
+    bool check_integrity() {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (in_transaction_) return fail("Cannot check on-disk integrity during a transaction");
+        if (load_failed_) return fail("Database load failed: " + last_error_);
+        Impl verifier(path_);
+        if (verifier.load_failed_) return fail("On-disk integrity check failed: " + verifier.last_error_);
+        if (verifier.state_ != state_) return fail("On-disk database state differs from the loaded state");
+        last_error_.clear();
+        return true;
+    }
     bool write_data(const std::string& key, const std::string& value) {
         std::lock_guard<std::mutex> lock(mutex_);
         if (!valid_name(key)) return fail("Key must not be empty or contain NUL");
@@ -358,7 +415,9 @@ private:
         return true;
     }
     bool write_snapshot_locked(const json& value) {
-        const fs::path target(path_);
+        return write_snapshot_to_path_locked(fs::path(path_), value);
+    }
+    bool write_snapshot_to_path_locked(const fs::path& target, const json& value) {
         std::error_code ec;
         if (target.has_parent_path()) fs::create_directories(target.parent_path(), ec);
         if (ec) return fail("Cannot create database directory: " + ec.message());
@@ -500,6 +559,9 @@ StorageEngine::StorageEngine(const std::string& path) : pimpl(std::make_unique<I
 StorageEngine::~StorageEngine() = default;
 bool StorageEngine::create_database() { return pimpl->create_database(); }
 bool StorageEngine::delete_database() { return pimpl->delete_database(); }
+bool StorageEngine::backup_database(const std::string& p) { return pimpl->backup_database(p); }
+bool StorageEngine::restore_database(const std::string& p) { return pimpl->restore_database(p); }
+bool StorageEngine::check_integrity() { return pimpl->check_integrity(); }
 bool StorageEngine::write_data(const std::string& k, const std::string& v) { return pimpl->write_data(k, v); }
 std::string StorageEngine::read_data(const std::string& k) { return pimpl->read_data(k); }
 bool StorageEngine::delete_data(const std::string& k) { return pimpl->delete_data(k); }

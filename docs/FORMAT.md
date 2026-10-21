@@ -29,4 +29,6 @@ WAL records and snapshot files are flushed using `fsync` on POSIX or `_commit` o
 
 There is no cross-process lock, multi-instance coordination, page-oriented storage, persistent index structure, cost-aware query planner, nested/full JSON Schema enforcement, or migration tooling. Do not use this prototype as the sole copy of important data. The whole state is written into each WAL record, so log size and write cost grow with database size between checkpoints.
 
+Backup files are standalone versioned snapshots and intentionally do not copy the live WAL. Restore validates the backup, writes it as a new generation, and leaves older WAL records harmless because recovery replays only generations newer than the snapshot. A restore should still be followed by a successful integrity check.
+
 Future format changes must include a version bump and migration tests. Never assume arbitrary manual edits to database files are safe.

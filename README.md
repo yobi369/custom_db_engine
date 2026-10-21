@@ -59,6 +59,9 @@ int main() {
 - `write_data(key, value)` inserts or replaces a string value.
 - `read_data(key)` returns the value; an empty result is ambiguous, so check `get_last_error()` to distinguish a missing key from a stored empty string.
 - `delete_data(key)` removes a key and reports failure if it does not exist.
+- `backup_database(path)` writes a consistent committed-state snapshot to a separate file.
+- `restore_database(path)` restores a validated snapshot and advances its generation so older WAL records cannot override it.
+- `check_integrity()` reloads the on-disk snapshot and WAL and compares them with the loaded state.
 - `begin_transaction()`, `commit_transaction()`, and `rollback_transaction()` operate on one transaction per engine instance.
 - `write_document(collection, json)` accepts JSON objects.
 - `query_documents(collection, filters)` applies exact string comparisons for string fields and JSON-text comparisons for non-string fields.
@@ -74,7 +77,7 @@ Check every boolean return value and inspect `get_last_error()` after a failure.
 3. **Query engine:** implement typed predicates, projections, ordering, limits, and persistent index structures and a cost-aware query planner.
 4. **Schema enforcement:** expand beyond the currently supported flat required/property-type subset and add nested-schema validation.
 5. **Storage scaling:** replace whole-file snapshots with a page-oriented storage manager and B+ tree after profiling.
-6. **Operations:** add backup/restore, integrity checking, format migrations, fuzzing, fault injection, sanitizers, and reproducible benchmarks.
+6. **Operations:** add automated backup scheduling, format migrations, fuzzing, broader fault injection, sanitizers, and reproducible benchmarks.
 
 See [docs/FORMAT.md](docs/FORMAT.md) for the on-disk format and guarantees. See [CONTRIBUTING.md](CONTRIBUTING.md) for development guidance.
 
