@@ -6,15 +6,14 @@ if(NOT nlohmann_json_FOUND)
   include(FetchContent)
   set(JSON_BuildTests OFF CACHE INTERNAL "")
   FetchContent_Declare(json
-    URL https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz
-    DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+    URL https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz)
   FetchContent_MakeAvailable(json)
 endif()
 add_library(custom_db_engine src/storage_engine.cpp)
 add_library(CustomDBEngine::custom_db_engine ALIAS custom_db_engine)
 target_compile_features(custom_db_engine PUBLIC cxx_std_17)
 target_include_directories(custom_db_engine PUBLIC
-  $<BUILD_INTERFACE:\${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>)
 target_link_libraries(custom_db_engine PUBLIC nlohmann_json::nlohmann_json)
 if(MSVC)
@@ -26,5 +25,5 @@ if(BUILD_TESTING)
   add_executable(storage_engine_test tests/storage_engine_test.cpp)
   target_link_libraries(storage_engine_test PRIVATE CustomDBEngine::custom_db_engine)
   add_test(NAME storage_engine_test COMMAND storage_engine_test)
-  set_tests_properties(storage_engine_test PROPERTIES WORKING_DIRECTORY "\${CMAKE_CURRENT_BINARY_DIR}")
+  set_tests_properties(storage_engine_test PROPERTIES WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
 endif()
