@@ -122,6 +122,7 @@ public:
         if (fs::exists(path_, ec) || fs::exists(wal_path(), ec)) return fail("Database already exists");
         if (ec) return fail("Cannot inspect database path: " + ec.message());
         state_ = empty_state();
+        index_cache_.clear();
         if (!checkpoint_locked(state_)) return false;
         last_error_.clear();
         return true;
@@ -136,6 +137,7 @@ public:
         if (!snapshot_removed && !wal_removed) return fail("Database file does not exist");
         state_ = empty_state();
         wal_records_ = 0;
+        index_cache_.clear();
         last_error_.clear();
         return true;
     }
@@ -178,6 +180,7 @@ public:
         }
         if (!next["documents"].contains(collection)) next["documents"][collection] = json::array();
         next["documents"][collection].push_back(document);
+        index_cache_.erase(collection);
         return finish_write_locked(std::move(next));
     }
     std::vector<std::string> query_documents(const std::string& collection, const std::map<std::string, std::string>& filters) {
@@ -187,7 +190,40 @@ public:
         const json& view = readable_state_locked();
         auto coll = view["documents"].find(collection);
         if (coll == view["documents"].end()) { last_error_.clear(); return result; }
-        for (const auto& document : *coll) {
+        const json& documents = *coll;
+        std::vector<std::size_t> candidates;
+        bool indexed_candidates = false;
+        for (const auto& filter : filters) {
+            bool index_enabled = false;
+            for (const auto& field_name : view["indexes"]) {
+                if (field_name == filter.first) { index_enabled = true; break; }
+            }
+            if (!index_enabled) continue;
+            auto& collection_indexes = index_cache_[collection];
+            auto cached = collection_indexes.find(filter.first);
+            if (cached == collection_indexes.end()) {
+                CachedIndex built;
+                for (std::size_t i = 0; i < documents.size(); ++i) {
+                    auto field = documents[i].find(filter.first);
+                    if (field == documents[i].end()) continue;
+                    const std::string value = field->is_string() ? field->get<std::string>() : field->dump();
+                    built[value].push_back(i);
+                }
+                cached = collection_indexes.emplace(filter.first, std::move(built)).first;
+            }
+            auto matching = cached->second.find(filter.second);
+            if (matching == cached->second.end()) { last_error_.clear(); return result; }
+            candidates = matching->second;
+            indexed_candidates = true;
+            break;
+        }
+        if (!indexed_candidates) {
+            candidates.reserve(documents.size());
+            for (std::size_t i = 0; i < documents.size(); ++i) candidates.push_back(i);
+        }
+        for (const auto i : candidates) {
+            if (i >= documents.size()) continue;
+            const auto& document = documents[i];
             bool matches = true;
             for (const auto& filter : filters) {
                 auto field = document.find(filter.first);
@@ -244,6 +280,7 @@ public:
         if (!in_transaction_) return fail("No transaction to roll back");
         transaction_state_ = json();
         in_transaction_ = false;
+        index_cache_.clear();
         last_error_.clear();
         return true;
     }
@@ -390,8 +427,10 @@ private:
         if (!load_wal_locked()) return;
         last_error_.clear();
     }
+    using CachedIndex = std::map<std::string, std::vector<std::size_t>>;
     std::string path_;
     mutable std::mutex mutex_;
+    std::map<std::string, std::map<std::string, CachedIndex>> index_cache_;
     json state_;
     json transaction_state_;
     bool in_transaction_ = false;

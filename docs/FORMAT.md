@@ -9,7 +9,7 @@ The database snapshot is a UTF-8 JSON object with these top-level members:
 - `kv`: object mapping keys to string values.
 - `documents`: object mapping collection names to arrays of JSON objects.
 - `schemas`: object mapping collection names to schema definitions. The supported subset validates required fields, flat property types, and `additionalProperties: false`.
-- `indexes`: array of index-field names (metadata only in this release).
+- `indexes`: array of configured index-field names. Runtime equality indexes are built lazily in memory and are not serialized.
 
 The implementation rejects unknown format versions and malformed snapshots rather than silently treating them as an empty database.
 
@@ -27,6 +27,6 @@ A transaction modifies an in-memory working snapshot. Commit appends the resulti
 
 The C++ stream is flushed, but the implementation does not call platform-specific fsync/FlushFileBuffers or sync the containing directory. Consequently, it does not promise power-loss durability. Snapshot replacement fallback behavior varies by platform. The FNV checksum detects accidental record damage; it is not cryptographic authentication.
 
-There is no cross-process lock, multi-instance coordination, page-oriented storage, index-backed query execution, nested/full JSON Schema enforcement, or migration tooling. Do not use this prototype as the sole copy of important data. The whole state is written into each WAL record, so log size and write cost grow with database size between checkpoints.
+There is no cross-process lock, multi-instance coordination, page-oriented storage, persistent index structure, cost-aware query planner, nested/full JSON Schema enforcement, or migration tooling. Do not use this prototype as the sole copy of important data. The whole state is written into each WAL record, so log size and write cost grow with database size between checkpoints.
 
 Future format changes must include a version bump and migration tests. Never assume arbitrary manual edits to database files are safe.

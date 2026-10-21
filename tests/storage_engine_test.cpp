@@ -43,6 +43,9 @@ int main() {
         CHECK(!db.write_document("validated", R"({"name":"Ada","extra":true})"));
         CHECK(db.write_document("validated", R"({"name":"Ada","age":5})"));
         CHECK(db.create_index("name"));
+        CHECK(db.query_documents("users", {{"name", "Bob"}}).size() == 1);
+        CHECK(db.write_document("users", R"({"name":"Carol","age":22})"));
+        CHECK(db.query_documents("users", {{"name", "Carol"}}).size() == 1);
         CHECK(!db.create_index("name"));
         CHECK(db.drop_index("name"));
         CHECK(db.delete_data("beta"));
