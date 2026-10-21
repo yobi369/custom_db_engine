@@ -121,6 +121,20 @@ int main() {
     std::filesystem::remove(corrupt_path + ".wal", ec);
     std::filesystem::remove(corrupt_path + ".tmp", ec);
     std::filesystem::remove(corrupt_path + ".lock", ec);
+
+    const std::string malformed_snapshot = "storage_engine_malformed_snapshot.json";
+    { std::ofstream snapshot(malformed_snapshot, std::ios::binary); snapshot << R"({"format_version":1,"generation":0,"kv":{"unsafe":42},"documents":{},"schemas":{},"indexes":[]})"; }
+    {
+        StorageEngine damaged(malformed_snapshot);
+        CHECK(!damaged.get_last_error().empty());
+        CHECK(!damaged.write_data("unsafe", "must-not-overwrite"));
+        CHECK(!damaged.create_database());
+        CHECK(!damaged.delete_database());
+    }
+    std::filesystem::remove(malformed_snapshot, ec);
+    std::filesystem::remove(malformed_snapshot + ".tmp", ec);
+    std::filesystem::remove(malformed_snapshot + ".wal", ec);
+    std::filesystem::remove(malformed_snapshot + ".lock", ec);
     std::cout << "All storage engine tests passed\n";
     return 0;
 }
