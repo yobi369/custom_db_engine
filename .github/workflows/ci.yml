@@ -25,3 +25,5 @@ jobs:
         run: cmake --build build --config ${{ matrix.build_type }} --parallel 2
       - name: Test
         run: ctest --test-dir build -C ${{ matrix.build_type }} --output-on-failure
+      - name: Install package
+        run: cmake --install build --config ${{ matrix.build_type }} --prefix install
