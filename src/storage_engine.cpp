@@ -1,8 +1,10 @@
 #include "storage_engine.h"
 #include <nlohmann/json.hpp>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
+#include <iterator>
 #include <mutex>
 #include <sstream>
 #include <system_error>

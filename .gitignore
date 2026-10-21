@@ -13,3 +13,5 @@
 *.db.json
 *.db.json.tmp
 storage_engine_test_db.json
+
+*.db.json.wal

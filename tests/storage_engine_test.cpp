@@ -1,13 +1,13 @@
 #include "storage_engine.h"
 #include <cassert>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 int main() {
     const std::string path = "storage_engine_test_db.json";
     std::error_code ec;
     std::filesystem::remove(path, ec);
     std::filesystem::remove(path + ".tmp", ec);
-    std::filesystem::remove(path + ".wal", ec);
     std::filesystem::remove(path + ".wal", ec);
     {
         StorageEngine db(path);
@@ -42,6 +42,7 @@ int main() {
         assert(db.delete_data("beta"));
         assert(!db.delete_data("missing"));
     }
+    { std::ofstream tail(path + ".wal", std::ios::binary | std::ios::app); tail << "incomplete-record"; }
     {
         StorageEngine reopened(path);
         assert(reopened.read_data("alpha") == "two");
