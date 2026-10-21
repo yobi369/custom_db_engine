@@ -1,52 +1,87 @@
-#include "../include/storage_engine.h"
+#include "storage_engine.h"
+#include <filesystem>
+#include <fstream>
 #include <iostream>
-#include <cassert>
-#include <map>
 
+#define CHECK(condition) do { if (!(condition)) { std::cerr << "CHECK failed at line " << __LINE__ << ": " #condition << '\n'; return 1; } } while (false)
 int main() {
-    StorageEngine engine("test_db.txt");
-    
-    // Test database operations
-    assert(engine.create_database());
-    
-    // Test key-value operations
-    assert(engine.write_data("key1", "value1"));
-    assert(engine.write_data("key2", "value2"));
-    assert(engine.read_data("key1") == "value1");
-    assert(engine.read_data("key2") == "value2");
-    assert(engine.read_data("key3").empty());
-    
-    // Test document model
-    assert(engine.write_document("users", R"({"name": "Alice", "age": 30})"));
-    assert(engine.write_document("users", R"({"name": "Bob", "age": 25})"));
-    
-    std::map<std::string, std::string> filters = {{"name", "Alice"}};
-    auto results = engine.query_documents("users", filters);
-    assert(results.size() == 1);
-    assert(results[0] == R"({"name": "Alice", "age": 30})");
-    
-    // Test schema management
-    std::string schema = R"({"type": "object", "properties": {"name": {"type": "string"}}})";
-    assert(engine.create_schema(schema));
-    assert(engine.update_schema(schema));
-    
-    // Test indexing
-    assert(engine.create_index("name"));
-    assert(engine.drop_index("name"));
-    
-    // Test transactions
-    assert(engine.begin_transaction());
-    assert(engine.write_data("tx_key", "tx_value"));
-    assert(engine.commit_transaction());
-    
-    assert(engine.begin_transaction());
-    assert(engine.write_data("rollback_key", "rollback_value"));
-    assert(engine.rollback_transaction());
-    assert(engine.read_data("rollback_key").empty());
-    
-    // Test database deletion
-    assert(engine.delete_database());
-    
-    std::cout << "All storage engine tests passed!\n";
+    const std::string path = "storage_engine_test_db.json";
+    std::error_code ec;
+    std::filesystem::remove(path, ec);
+    std::filesystem::remove(path + ".tmp", ec);
+    std::filesystem::remove(path + ".wal", ec);
+    {
+        StorageEngine db(path);
+        CHECK(db.write_data("empty", ""));
+        CHECK(db.read_data("empty").empty());
+        CHECK(db.get_last_error().empty());
+        CHECK(db.write_data("alpha", "one"));
+        CHECK(db.write_data("alpha", "two"));
+        CHECK(db.read_data("alpha") == "two");
+        CHECK(db.begin_transaction());
+        CHECK(!db.begin_transaction());
+        CHECK(db.write_data("alpha", "transactional"));
+        CHECK(db.read_data("alpha") == "transactional");
+        CHECK(db.rollback_transaction());
+        CHECK(db.read_data("alpha") == "two");
+        CHECK(db.begin_transaction());
+        CHECK(db.write_data("beta", "durable"));
+        CHECK(db.commit_transaction());
+        CHECK(db.read_data("beta") == "durable");
+        CHECK(db.write_document("users", R"({"name":"Alice","age":30})"));
+        CHECK(db.write_document("users", R"({"name":"Bob","age":25})"));
+        const auto results = db.query_documents("users", {{"name", "Alice"}});
+        CHECK(results.size() == 1);
+        CHECK(results.front() == R"({"age":30,"name":"Alice"})");
+        CHECK(!db.write_document("users", "not json"));
+        CHECK(db.create_schema(R"({"collection":"users","type":"object"})"));
+        CHECK(!db.create_schema(R"({"collection":"users","type":"object"})"));
+        CHECK(db.update_schema(R"({"collection":"users","type":"object","version":2})"));
+        CHECK(db.create_schema(R"({"collection":"validated","type":"object","required":["name"],"properties":{"name":{"type":"string"},"age":{"type":"integer"}},"additionalProperties":false})"));
+        CHECK(!db.write_document("validated", R"({"age":5})"));
+        CHECK(!db.write_document("validated", R"({"name":12,"age":5})"));
+        CHECK(!db.write_document("validated", R"({"name":"Ada","extra":true})"));
+        CHECK(db.write_document("validated", R"({"name":"Ada","age":5})"));
+        CHECK(db.create_index("name"));
+        CHECK(db.query_documents("users", {{"name", "Bob"}}).size() == 1);
+        CHECK(db.write_document("users", R"({"name":"Carol","age":22})"));
+        CHECK(db.query_documents("users", {{"name", "Carol"}}).size() == 1);
+        CHECK(!db.create_index("name"));
+        CHECK(db.drop_index("name"));
+        CHECK(db.delete_data("beta"));
+        CHECK(!db.delete_data("missing"));
+    }
+    { std::ofstream tail(path + ".wal", std::ios::binary | std::ios::app); tail << "incomplete-record"; }
+    {
+        StorageEngine reopened(path);
+        CHECK(reopened.read_data("alpha") == "two");
+        CHECK(reopened.read_data("beta").empty());
+        CHECK(reopened.get_last_error().find("Key not found") != std::string::npos);
+        CHECK(reopened.query_documents("users", {{"name", "Bob"}}).size() == 1);
+    }
+    {
+        StorageEngine db(path);
+        CHECK(db.begin_transaction());
+        CHECK(db.write_data("never_committed", "x"));
+        CHECK(db.rollback_transaction());
+    }
+    {
+        StorageEngine reopened(path);
+        CHECK(reopened.read_data("never_committed").empty());
+    }
+    {
+        StorageEngine db(path);
+        for (int i = 0; i < 70; ++i) {
+            CHECK(db.write_data("bulk" + std::to_string(i), "value" + std::to_string(i)));
+        }
+    }
+    {
+        StorageEngine reopened(path);
+        CHECK(reopened.read_data("bulk69") == "value69");
+    }
+    std::filesystem::remove(path, ec);
+    std::filesystem::remove(path + ".tmp", ec);
+    std::filesystem::remove(path + ".wal", ec);
+    std::cout << "All storage engine tests passed\n";
     return 0;
 }

@@ -1,0 +1,17 @@
+/build/
+/cmake-build-*/
+/CMakeCache.txt
+/CMakeFiles/
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.dylib
+*.dll
+*.exe
+*.db.json
+*.db.json.tmp
+storage_engine_test_db.json
+
+*.db.json.wal
