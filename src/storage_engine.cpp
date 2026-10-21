@@ -20,6 +20,7 @@ public:
     explicit Impl(std::string path) : path_(std::move(path)), state_(empty_state()) {
         std::lock_guard<std::mutex> lock(mutex_);
         load_locked();
+        load_failed_ = !last_error_.empty();
     }
     bool create_database() {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -170,6 +171,7 @@ private:
         return true;
     }
     bool persist_locked(const json& value) {
+        if (load_failed_) return fail("Database failed to load; refusing to overwrite the existing file");
         if (path_.empty()) return fail("Database path must not be empty");
         const fs::path target(path_);
         std::error_code ec;
@@ -230,6 +232,7 @@ private:
     json state_;
     json transaction_state_;
     bool in_transaction_ = false;
+    bool load_failed_ = false;
     std::string last_error_;
 };
 StorageEngine::StorageEngine(const std::string& path) : pimpl(std::make_unique<Impl>(path)) {}
