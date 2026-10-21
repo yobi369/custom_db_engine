@@ -65,6 +65,7 @@ int main() {
         CHECK(reopened.read_data("beta").empty());
         CHECK(reopened.get_last_error().find("Key not found") != std::string::npos);
         CHECK(reopened.query_documents("users", {{"name", "Bob"}}).size() == 1);
+        CHECK(reopened.write_data("after_torn_tail", "recovery-truncated-the-tail"));
     }
     {
         StorageEngine db(path);
@@ -85,12 +86,34 @@ int main() {
     {
         StorageEngine reopened(path);
         CHECK(reopened.read_data("bulk69") == "value69");
+        CHECK(reopened.read_data("after_torn_tail") == "recovery-truncated-the-tail");
     }
     std::filesystem::remove(path, ec);
     std::filesystem::remove(path + ".tmp", ec);
     std::filesystem::remove(path + ".wal", ec);
+    std::filesystem::remove(path + ".lock", ec);
     std::filesystem::remove(backup, ec);
     std::filesystem::remove(backup + ".tmp", ec);
+    const std::string corrupt_path = "storage_engine_corrupt_test.json";
+    std::filesystem::remove(corrupt_path, ec);
+    std::filesystem::remove(corrupt_path + ".wal", ec);
+    std::filesystem::remove(corrupt_path + ".lock", ec);
+    {
+        StorageEngine db(corrupt_path);
+        CHECK(db.write_data("safe", "preserve"));
+    }
+    { std::ofstream corrupt(corrupt_path + ".wal", std::ios::binary | std::ios::app); corrupt << "not-a-valid-record\n"; }
+    {
+        StorageEngine damaged(corrupt_path);
+        CHECK(!damaged.get_last_error().empty());
+        CHECK(!damaged.write_data("unsafe", "must-not-overwrite"));
+        CHECK(!damaged.create_database());
+        CHECK(!damaged.delete_database());
+    }
+    std::filesystem::remove(corrupt_path, ec);
+    std::filesystem::remove(corrupt_path + ".wal", ec);
+    std::filesystem::remove(corrupt_path + ".tmp", ec);
+    std::filesystem::remove(corrupt_path + ".lock", ec);
     std::cout << "All storage engine tests passed\n";
     return 0;
 }

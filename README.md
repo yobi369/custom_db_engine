@@ -12,7 +12,8 @@ A C++17 embedded database prototype with persistent key-value storage, write-ahe
 - JSON object document collections and simple equality filters.
 - A documented subset of JSON schema validation (required fields, basic property types, and additional-property rejection).
 - Lazy in-memory equality indexes for configured fields; index caches are rebuilt after collection writes and process restarts.
-- Per-instance mutex protection for calls on a single StorageEngine object.
+- Per-instance mutex protection plus a non-blocking exclusive OS file lock held for the lifetime of each database handle; a second process/instance fails closed rather than writing concurrently.
+- Deterministic randomized CRUD/reopen property tests and an AddressSanitizer/UndefinedBehaviorSanitizer CI job.
 - CMake build, CTest test suite, and GitHub Actions CI.
 
 ## Requirements
@@ -77,7 +78,7 @@ int main() {
 - `create_schema` and `update_schema` store JSON metadata keyed by the `collection` property (or `default`). Document writes enforce a documented subset: required fields, top-level object schemas, basic property types, and optional rejection of unknown properties. Nested schema validation and the full JSON Schema standard are not implemented.
 - `create_index` and `drop_index` configure field indexes. Matching equality queries can use a lazily built in-memory index; the index cache is not persisted and is rebuilt after restart or collection changes.
 
-Check every boolean return value and inspect `get_last_error()` after a failure. A database file should be used by only one process at a time.
+Check every boolean return value and inspect `get_last_error()` after a failure. A database file permits only one active `StorageEngine` handle across processes. The engine acquires an exclusive OS lock at `<database-path>.lock`; competing opens fail closed. Do not delete or replace the lock file while any process may have the database open.
 
 ## Install and consume as a CMake package
 
@@ -104,7 +105,7 @@ The package exports the compiled library and public headers; the JSON dependency
 3. **Query engine:** implement typed predicates, projections, ordering, limits, and persistent index structures and a cost-aware query planner.
 4. **Schema enforcement:** expand beyond the currently supported flat required/property-type subset and add nested-schema validation.
 5. **Storage scaling:** replace whole-file snapshots with a page-oriented storage manager and B+ tree after profiling.
-6. **Operations:** add automated backup scheduling, format migrations, fuzzing, broader fault injection, sanitizers, and reproducible benchmarks.
+6. **Operations:** add automated backup scheduling, format migrations, fuzzing, broader fault injection, and reproducible benchmarks. ASan/UBSan CI and deterministic randomized persistence tests are now included.
 
 See [docs/FORMAT.md](docs/FORMAT.md) for the on-disk format and guarantees. See [CONTRIBUTING.md](CONTRIBUTING.md) for development guidance.
 

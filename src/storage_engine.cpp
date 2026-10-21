@@ -497,6 +497,7 @@ private:
         std::ifstream in(wal_path(), std::ios::binary);
         if (!in) return true;
         std::string bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        in.close();
         std::size_t start = 0;
         while (true) {
             const std::size_t end = bytes.find('\n', start);
