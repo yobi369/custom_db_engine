@@ -94,7 +94,7 @@ find_package(CustomDBEngine 0.2 CONFIG REQUIRED)
 target_link_libraries(my_app PRIVATE CustomDBEngine::custom_db_engine)
 ```
 
-The consuming environment must also provide the `nlohmann_json` CMake package (version 3.10 or newer).
+The package exports the compiled library and public headers; the JSON dependency is needed only when building this repository.
 
 
 ## Current limitations and roadmap

@@ -20,7 +20,7 @@ target_compile_features(custom_db_engine PUBLIC cxx_std_17)
 target_include_directories(custom_db_engine PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
-target_link_libraries(custom_db_engine PUBLIC nlohmann_json::nlohmann_json)
+target_include_directories(custom_db_engine PRIVATE $<TARGET_PROPERTY:nlohmann_json::nlohmann_json,INTERFACE_INCLUDE_DIRECTORIES>)
 
 if(MSVC)
   target_compile_options(custom_db_engine PRIVATE /W4 /permissive-)
