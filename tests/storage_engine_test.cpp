@@ -5,6 +5,9 @@
 #include <atomic>
 #include <thread>
 #include <vector>
+#ifdef _WIN32
+#include <process.h>
+#endif
 #include <cstdint>
 #include <cstdlib>
 #include <iomanip>
@@ -50,9 +53,16 @@ int main(int argc, char** argv) {
         }
         // Verify the OS lock excludes a genuinely separate process, not just another
         // object in this process.
+#ifdef _WIN32
+        const int probe_status = _spawnl(_P_WAIT, argv[0], argv[0],
+                                         "--expect-lock-blocked", path.c_str(),
+                                         static_cast<const char*>(nullptr));
+#else
         const std::string probe_command = "\"" + std::string(argv[0]) +
             "\" --expect-lock-blocked \"" + path + "\"";
-        CHECK(std::system(probe_command.c_str()) == 0);
+        const int probe_status = std::system(probe_command.c_str());
+#endif
+        CHECK(probe_status == 0);
         CHECK(db.write_data("empty", ""));
         CHECK(db.read_data("empty").empty());
         CHECK(db.get_last_error().empty());
