@@ -232,6 +232,26 @@ int main(int argc, char** argv) {
     }
     for (const auto& suffix : {"", ".wal", ".tmp", ".lock"}) std::filesystem::remove(mismatched_patch_path + suffix, ec);
 
+    // A correctly checksummed delta must still be rejected if applying its
+    // JSON Patch fails; recovery must not silently ignore a complete bad record.
+    const std::string invalid_patch_path = "storage_engine_invalid_patch.json";
+    for (const auto& suffix : {"", ".wal", ".tmp", ".lock"}) std::filesystem::remove(invalid_patch_path + suffix, ec);
+    {
+        StorageEngine db(invalid_patch_path);
+        CHECK(db.write_data("safe", "preserve"));
+    }
+    {
+        const std::string payload = R"({"record_version":2,"base_generation":1,"generation":2,"patch":[{"op":"remove","path":"/kv/not-present"},{"op":"replace","path":"/generation","value":2}]})";
+        std::ofstream wal(invalid_patch_path + ".wal", std::ios::binary | std::ios::app);
+        wal << "2 " << test_checksum(payload) << " " << payload << "\n";
+    }
+    {
+        StorageEngine damaged(invalid_patch_path);
+        CHECK(!damaged.get_last_error().empty());
+        CHECK(!damaged.write_data("must_not_write", "x"));
+    }
+    for (const auto& suffix : {"", ".wal", ".tmp", ".lock"}) std::filesystem::remove(invalid_patch_path + suffix, ec);
+
     const std::string invalid_name_snapshot = "storage_engine_invalid_name_snapshot.json";
     for (const auto& suffix : {"", ".wal", ".tmp", ".lock"}) std::filesystem::remove(invalid_name_snapshot + suffix, ec);
     {
