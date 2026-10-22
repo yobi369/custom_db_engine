@@ -22,6 +22,18 @@ A C++17 embedded database prototype with persistent key-value storage, write-ahe
 - CMake 3.16+
 - nlohmann/json 3.10+ (found locally or fetched by CMake)
 
+## Performance baseline
+
+The `custom_db_engine_benchmark` executable measures per-write latency (average, p50, p95), bulk-read time, reopen time, snapshot size, and WAL size. It verifies integrity and persisted values before reporting results. It creates an isolated temporary directory and removes it when finished.
+
+```bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --config Release --parallel
+./build/custom_db_engine_benchmark 250
+```
+
+Pass a record count from 1 to 100000 to change the workload. Compare results only on the same machine, filesystem, build type, and payload size. These measurements are a development baseline, not a production capacity guarantee.
+
 ## Build and test
 
 ```bash

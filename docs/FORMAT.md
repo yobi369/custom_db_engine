@@ -32,3 +32,7 @@ The exclusive lock prevents simultaneous writers/open handles; it is not a multi
 Backup files are standalone versioned snapshots and intentionally do not copy the live WAL. Restore validates the backup, writes it as a new generation, and leaves older WAL records harmless because recovery replays only generations newer than the snapshot. If snapshot publication reports a failure after the rename may have occurred, the current handle is disabled until reopening re-establishes the on-disk state. A restore should still be followed by a successful integrity check.
 
 Future format changes must include a version bump and migration tests. Never assume arbitrary manual edits to database files are safe.
+
+## Performance and scalability notes
+
+The current write path serializes the complete logical state into each WAL record. WAL recovery streams records to avoid buffering the entire log, but each record still contains the full state, so write amplification and recovery CPU can grow substantially with database size. Run `custom_db_engine_benchmark` on the target machine to capture a baseline before comparing future storage-format changes. Do not infer critical-workload capacity from a small synthetic run.
