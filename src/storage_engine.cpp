@@ -40,6 +40,18 @@ json empty_state() {
 bool valid_name(const std::string& value) {
     return !value.empty() && value.find('\0') == std::string::npos;
 }
+bool valid_patch(const json& patch) {
+    if (!patch.is_array()) return false;
+    for (const auto& operation : patch) {
+        if (!operation.is_object() || !operation.contains("op") ||
+            !operation["op"].is_string() || !operation.contains("path") ||
+            !operation["path"].is_string()) return false;
+        const auto op = operation["op"].get<std::string>();
+        if (op != "add" && op != "remove" && op != "replace") return false;
+        if ((op == "add" || op == "replace") && !operation.contains("value")) return false;
+    }
+    return true;
+}
 bool validate_schema_definition(const json& schema, std::string& error);
 bool valid_state(const json& value) {
     try {
@@ -625,7 +637,17 @@ private:
         if (current_generation >= std::numeric_limits<std::uint64_t>::max() - 1)
             return fail("Database generation counter is exhausted; refusing to wrap the generation");
         value["generation"] = current_generation + 1;
-        const std::string payload = value.dump();
+        // Version 2 WAL payloads store a JSON Patch rather than duplicating the
+        // entire database state on every mutation. The base generation makes
+        // missing/out-of-order records detectable during recovery.
+        const json patch = json::diff(state_, value);
+        const json wal_payload = {
+            {"record_version", 2},
+            {"base_generation", current_generation},
+            {"generation", value["generation"]},
+            {"patch", patch}
+        };
+        const std::string payload = wal_payload.dump();
         const std::string record = std::to_string(value["generation"].get<std::uint64_t>()) + " " + checksum_text(payload) + " " + payload + "\n";
         {
             std::error_code ec;
@@ -698,14 +720,6 @@ private:
             if (checksum_text(payload) != expected_checksum)
                 return fail("Write-ahead log checksum mismatch");
 
-            json recovered;
-            try { recovered = json::parse(payload); }
-            catch (const std::exception& e) {
-                return fail(std::string("Invalid write-ahead log payload: ") + e.what());
-            }
-            if (!valid_state(recovered))
-                return fail("Unsupported or malformed state in write-ahead log");
-
             std::uint64_t record_generation = 0;
             try {
                 std::size_t parsed = 0;
@@ -716,8 +730,57 @@ private:
             } catch (...) { return fail("Invalid write-ahead log generation"); }
             if (record_generation == 0)
                 return fail("Write-ahead log generation must be greater than zero");
-            if (record_generation != recovered["generation"].get<std::uint64_t>())
-                return fail("Write-ahead log generation mismatch");
+
+            json payload_json;
+            try { payload_json = json::parse(payload); }
+            catch (const std::exception& e) {
+                return fail(std::string("Invalid write-ahead log payload: ") + e.what());
+            }
+
+            if (valid_state(payload_json)) {
+                // Backward compatibility: version 1 WAL records stored full states.
+                if (record_generation != payload_json["generation"].get<std::uint64_t>())
+                    return fail("Write-ahead log generation mismatch");
+                if (record_generation > state_.value("generation", std::uint64_t{0}))
+                    state_ = std::move(payload_json);
+            } else {
+                // Version 2 records store a patch from base_generation to generation.
+                if (!payload_json.is_object() ||
+                    !payload_json.contains("record_version") ||
+                    !payload_json["record_version"].is_number_integer() ||
+                    payload_json["record_version"].get<int>() != 2 ||
+                    !payload_json.contains("base_generation") ||
+                    !payload_json["base_generation"].is_number_integer() ||
+                    !payload_json.contains("generation") ||
+                    !payload_json["generation"].is_number_integer() ||
+                    !payload_json.contains("patch") || !valid_patch(payload_json["patch"]))
+                    return fail("Unsupported or malformed write-ahead log record");
+                std::uint64_t base_generation = 0;
+                std::uint64_t payload_generation = 0;
+                try {
+                    base_generation = payload_json["base_generation"].get<std::uint64_t>();
+                    payload_generation = payload_json["generation"].get<std::uint64_t>();
+                } catch (...) { return fail("Invalid write-ahead log generation metadata"); }
+                if (payload_generation != record_generation ||
+                    base_generation >= std::numeric_limits<std::uint64_t>::max() - 1 ||
+                    payload_generation != base_generation + 1)
+                    return fail("Write-ahead log generation metadata mismatch");
+
+                const auto current_generation = state_.value("generation", std::uint64_t{0});
+                if (record_generation > current_generation) {
+                    if (base_generation != current_generation)
+                        return fail("Write-ahead log patch base generation mismatch");
+                    try {
+                        json patched = state_.patch(payload_json["patch"]);
+                        if (!valid_state(patched) ||
+                            patched["generation"].get<std::uint64_t>() != record_generation)
+                            return fail("Write-ahead log patch produced an invalid state");
+                        state_ = std::move(patched);
+                    } catch (const std::exception& e) {
+                        return fail(std::string("Cannot apply write-ahead log patch: ") + e.what());
+                    }
+                }
+            }
             if (saw_record && record_generation <= previous_record_generation)
                 return fail("Write-ahead log generations are not strictly increasing");
             previous_record_generation = record_generation;
