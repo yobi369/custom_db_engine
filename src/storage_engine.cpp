@@ -441,21 +441,49 @@ public:
     bool write_document(const std::string& collection, const std::string& json_data) {
         std::lock_guard<std::mutex> lock(mutex_);
         if (!valid_name(collection)) return fail("Collection name must not be empty");
+        if (load_failed_) return fail("Database failed to load; refusing to overwrite the existing file");
         json document;
         try { document = json::parse(json_data); }
         catch (const std::exception& e) { return fail(std::string("Invalid JSON document: ") + e.what()); }
         if (!document.is_object()) return fail("Documents must be JSON objects");
-        json next = writable_state_locked();
-        auto schema_it = next["schemas"].find(collection);
-        if (schema_it != next["schemas"].end()) {
+
+        json& view = in_transaction_ ? transaction_state_ : state_;
+        auto schema_it = view["schemas"].find(collection);
+        if (schema_it != view["schemas"].end()) {
             std::string validation_error;
             if (!validate_document_against_schema(document, *schema_it, validation_error))
                 return fail("Schema validation failed: " + validation_error);
         }
-        if (!next["documents"].contains(collection)) next["documents"][collection] = json::array();
-        next["documents"][collection].push_back(document);
+        if (in_transaction_) {
+            if (!view["documents"].contains(collection)) view["documents"][collection] = json::array();
+            view["documents"][collection].push_back(document);
+            index_cache_.erase(collection);
+            last_error_.clear();
+            return true;
+        }
+
+        const auto current_generation = state_.value("generation", std::uint64_t{0});
+        if (current_generation >= std::numeric_limits<std::uint64_t>::max() - 1)
+            return fail("Database generation counter is exhausted; refusing to wrap the generation");
+        const auto target_generation = current_generation + 1;
+        const std::string collection_path = "/documents/" + escape_json_pointer_token(collection);
+        json patch = json::array();
+        if (state_["documents"].contains(collection)) {
+            patch.push_back({{"op", "add"}, {"path", collection_path + "/-"}, {"value", document}});
+        } else {
+            json first_document = json::array();
+            first_document.push_back(document);
+            patch.push_back({{"op", "add"}, {"path", collection_path}, {"value", first_document}});
+        }
+        patch.push_back({{"op", "replace"}, {"path", "/generation"}, {"value", target_generation}});
+        if (!append_wal_patch_locked(current_generation, target_generation, patch)) return false;
+        if (!state_["documents"].contains(collection)) state_["documents"][collection] = json::array();
+        state_["documents"][collection].push_back(std::move(document));
+        state_["generation"] = target_generation;
         index_cache_.erase(collection);
-        return finish_write_locked(std::move(next));
+        last_error_.clear();
+        checkpoint_if_needed_locked(state_);
+        return true;
     }
     std::vector<std::string> query_documents(const std::string& collection, const std::map<std::string, std::string>& filters) {
         std::lock_guard<std::mutex> lock(mutex_);
