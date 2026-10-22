@@ -104,6 +104,8 @@ int main(int argc, char** argv) {
         CHECK(!db.write_document("validated", R"({"name":12,"age":5})"));
         CHECK(!db.write_document("validated", R"({"name":"Ada","extra":true})"));
         CHECK(db.write_document("validated", R"({"name":"Ada","age":5})"));
+        CHECK(db.create_schema(R"({"collection":"schema/with~tokens","type":"object","required":["name"],"properties":{"name":{"type":"string"}}})"));
+        CHECK(db.write_document("schema/with~tokens", R"({"name":"escaped"})"));
         CHECK(db.create_index("name"));
         CHECK(db.query_documents("users", {{"name", "Bob"}}).size() == 1);
         CHECK(db.write_document("users", R"({"name":"Carol","age":22})"));
