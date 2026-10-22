@@ -214,9 +214,9 @@ int main(int argc, char** argv) {
         CHECK(db.write_data("safe", "value"));
     }
     {
-        const std::string payload = R"({"base_generation":0,"generation":2,"patch":[{"op":"replace","path":"/generation","value":2}],"record_version":2})";
+        const std::string payload = R"({"base_generation":5,"generation":6,"patch":[{"op":"replace","path":"/generation","value":6}],"record_version":2})";
         std::ofstream wal(mismatched_patch_path + ".wal", std::ios::binary | std::ios::app);
-        wal << "2 " << test_checksum(payload) << " " << payload << "\n";
+        wal << "6 " << test_checksum(payload) << " " << payload << "\n";
     }
     {
         StorageEngine damaged(mismatched_patch_path);
