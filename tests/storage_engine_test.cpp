@@ -6,6 +6,7 @@
 #include <thread>
 #include <vector>
 #include <cstdint>
+#include <cstdlib>
 #include <iomanip>
 #include <sstream>
 
@@ -27,7 +28,11 @@ std::string test_wal_record(unsigned long long generation) {
 }
 
 #define CHECK(condition) do { if (!(condition)) { std::cerr << "CHECK failed at line " << __LINE__ << ": " #condition << '\n'; return 1; } } while (false)
-int main() {
+int main(int argc, char** argv) {
+    if (argc == 3 && std::string(argv[1]) == "--expect-lock-blocked") {
+        StorageEngine competing(argv[2]);
+        return competing.get_last_error().find("already open") != std::string::npos ? 0 : 1;
+    }
     const std::string path = "storage_engine_test_db.json";
     const std::string backup = "storage_engine_test_backup.json";
     std::error_code ec;
@@ -43,6 +48,11 @@ int main() {
             CHECK(!competing.delete_database());
             CHECK(!competing.write_data("must_not_write", "x"));
         }
+        // Verify the OS lock excludes a genuinely separate process, not just another
+        // object in this process.
+        const std::string probe_command = "\"" + std::string(argv[0]) +
+            "\" --expect-lock-blocked \"" + path + "\"";
+        CHECK(std::system(probe_command.c_str()) == 0);
         CHECK(db.write_data("empty", ""));
         CHECK(db.read_data("empty").empty());
         CHECK(db.get_last_error().empty());
