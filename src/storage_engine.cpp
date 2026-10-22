@@ -52,6 +52,16 @@ bool valid_patch(const json& patch) {
     }
     return true;
 }
+std::string escape_json_pointer_token(const std::string& token) {
+    std::string escaped;
+    escaped.reserve(token.size());
+    for (const char ch : token) {
+        if (ch == '~') escaped += "~0";
+        else if (ch == '/') escaped += "~1";
+        else escaped += ch;
+    }
+    return escaped;
+}
 bool validate_schema_definition(const json& schema, std::string& error);
 bool valid_state(const json& value) {
     try {
@@ -372,9 +382,27 @@ public:
     bool write_data(const std::string& key, const std::string& value) {
         std::lock_guard<std::mutex> lock(mutex_);
         if (!valid_name(key)) return fail("Key must not be empty or contain NUL");
-        json next = writable_state_locked();
-        next["kv"][key] = value;
-        return finish_write_locked(std::move(next));
+        if (load_failed_) return fail("Database failed to load; refusing to overwrite the existing file");
+        if (in_transaction_) {
+            transaction_state_["kv"][key] = value;
+            last_error_.clear();
+            return true;
+        }
+        const auto current_generation = state_.value("generation", std::uint64_t{0});
+        if (current_generation >= std::numeric_limits<std::uint64_t>::max() - 1)
+            return fail("Database generation counter is exhausted; refusing to wrap the generation");
+        const auto target_generation = current_generation + 1;
+        const bool exists = state_["kv"].contains(key);
+        const std::string key_path = "/kv/" + escape_json_pointer_token(key);
+        json patch = json::array();
+        patch.push_back({{"op", exists ? "replace" : "add"}, {"path", key_path}, {"value", value}});
+        patch.push_back({{"op", "replace"}, {"path", "/generation"}, {"value", target_generation}});
+        if (!append_wal_patch_locked(current_generation, target_generation, patch)) return false;
+        state_["kv"][key] = value;
+        state_["generation"] = target_generation;
+        last_error_.clear();
+        checkpoint_if_needed_locked(state_);
+        return true;
     }
     std::string read_data(const std::string& key) {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -387,10 +415,28 @@ public:
     }
     bool delete_data(const std::string& key) {
         std::lock_guard<std::mutex> lock(mutex_);
-        json next = writable_state_locked();
-        if (!next["kv"].contains(key)) return fail("Key not found: " + key);
-        next["kv"].erase(key);
-        return finish_write_locked(std::move(next));
+        if (load_failed_) return fail("Database failed to load; refusing to overwrite the existing file");
+        json& view = in_transaction_ ? transaction_state_ : state_;
+        if (!view["kv"].contains(key)) return fail("Key not found: " + key);
+        if (in_transaction_) {
+            view["kv"].erase(key);
+            last_error_.clear();
+            return true;
+        }
+        const auto current_generation = state_.value("generation", std::uint64_t{0});
+        if (current_generation >= std::numeric_limits<std::uint64_t>::max() - 1)
+            return fail("Database generation counter is exhausted; refusing to wrap the generation");
+        const auto target_generation = current_generation + 1;
+        const std::string key_path = "/kv/" + escape_json_pointer_token(key);
+        json patch = json::array();
+        patch.push_back({{"op", "remove"}, {"path", key_path}});
+        patch.push_back({{"op", "replace"}, {"path", "/generation"}, {"value", target_generation}});
+        if (!append_wal_patch_locked(current_generation, target_generation, patch)) return false;
+        state_["kv"].erase(key);
+        state_["generation"] = target_generation;
+        last_error_.clear();
+        checkpoint_if_needed_locked(state_);
+        return true;
     }
     bool write_document(const std::string& collection, const std::string& json_data) {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -637,18 +683,27 @@ private:
         if (current_generation >= std::numeric_limits<std::uint64_t>::max() - 1)
             return fail("Database generation counter is exhausted; refusing to wrap the generation");
         value["generation"] = current_generation + 1;
-        // Version 2 WAL payloads store a JSON Patch rather than duplicating the
-        // entire database state on every mutation. The base generation makes
-        // missing/out-of-order records detectable during recovery.
         const json patch = json::diff(state_, value);
+        if (!append_wal_patch_locked(current_generation, current_generation + 1, patch)) return false;
+        checkpoint_if_needed_locked(value);
+        return true;
+    }
+    bool append_wal_patch_locked(std::uint64_t base_generation,
+                                 std::uint64_t target_generation,
+                                 const json& patch) {
+        if (load_failed_) return fail("Database failed to load; refusing to overwrite the existing file");
+        if (path_.empty()) return fail("Database path must not be empty");
+        if (base_generation >= std::numeric_limits<std::uint64_t>::max() - 1 ||
+            target_generation != base_generation + 1 || !valid_patch(patch))
+            return fail("Refusing to append an invalid WAL patch");
         const json wal_payload = {
             {"record_version", 2},
-            {"base_generation", current_generation},
-            {"generation", value["generation"]},
+            {"base_generation", base_generation},
+            {"generation", target_generation},
             {"patch", patch}
         };
         const std::string payload = wal_payload.dump();
-        const std::string record = std::to_string(value["generation"].get<std::uint64_t>()) + " " + checksum_text(payload) + " " + payload + "\n";
+        const std::string record = std::to_string(target_generation) + " " + checksum_text(payload) + " " + payload + "\n";
         {
             std::error_code ec;
             const fs::path target(path_);
@@ -662,26 +717,22 @@ private:
             const bool flushed = written && durable_flush(wal);
             const bool closed = std::fclose(wal) == 0;
             if (!written || !flushed || !closed) {
-                // A failed append may have left a partial record at EOF. Continuing to
-                // append in this handle could turn a recoverable torn tail into a
-                // malformed complete record. Poison the handle and require reopen/recovery.
                 load_failed_ = true;
                 return fail("Failed to append and durably flush write-ahead log record; handle disabled until reopen");
             }
             if (!wal_existed && !sync_parent_directory(fs::path(wal_path()))) {
-                // The record may be present but its directory entry may not be durable.
-                // Do not acknowledge later writes from a handle with uncertain durability.
                 load_failed_ = true;
                 return fail("WAL record written but parent directory sync failed; handle disabled until reopen");
             }
         }
         ++wal_records_;
-        // Checkpoint periodically. A valid WAL record remains the recovery source if checkpointing fails.
+        return true;
+    }
+    void checkpoint_if_needed_locked(const json& value) {
         if (wal_records_ >= 64) {
             const std::string previous_error = last_error_;
             if (!checkpoint_locked(value)) last_error_ = previous_error;
         }
-        return true;
     }
     bool load_wal_locked() {
         std::ifstream in(wal_path(), std::ios::binary);
