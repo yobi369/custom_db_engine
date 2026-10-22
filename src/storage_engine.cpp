@@ -64,16 +64,16 @@ bool valid_state(const json& value) {
         if (generation == std::numeric_limits<std::uint64_t>::max()) return false;
 
         for (auto it = value["kv"].begin(); it != value["kv"].end(); ++it)
-            if (!it.value().is_string()) return false;
+            if (!valid_name(it.key()) || !it.value().is_string()) return false;
 
         for (auto it = value["documents"].begin(); it != value["documents"].end(); ++it) {
-            if (!it.value().is_array()) return false;
+            if (!valid_name(it.key()) || !it.value().is_array()) return false;
             for (const auto& document : it.value())
                 if (!document.is_object()) return false;
         }
 
         for (auto it = value["schemas"].begin(); it != value["schemas"].end(); ++it) {
-            if (!it.value().is_object()) return false;
+            if (!valid_name(it.key()) || !it.value().is_object()) return false;
             std::string schema_error;
             if (!validate_schema_definition(it.value(), schema_error)) return false;
             if (it.value().contains("collection") &&
@@ -667,6 +667,8 @@ private:
                     generation_text.front() == '-' || generation_text.front() == '+')
                     return fail("Invalid write-ahead log generation");
             } catch (...) { return fail("Invalid write-ahead log generation"); }
+            if (record_generation == 0)
+                return fail("Write-ahead log generation must be greater than zero");
             if (record_generation != recovered["generation"].get<std::uint64_t>())
                 return fail("Write-ahead log generation mismatch");
             if (saw_record && record_generation <= previous_record_generation)
