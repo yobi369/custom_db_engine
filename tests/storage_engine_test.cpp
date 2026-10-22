@@ -2,6 +2,26 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <cstdint>
+#include <iomanip>
+#include <sstream>
+
+
+namespace {
+std::string test_checksum(const std::string& bytes) {
+    std::uint64_t hash = 14695981039346656037ULL;
+    for (unsigned char value : bytes) { hash ^= value; hash *= 1099511628211ULL; }
+    std::ostringstream out;
+    out << std::hex << std::setw(16) << std::setfill('0') << hash;
+    return out.str();
+}
+std::string test_wal_record(unsigned long long generation) {
+    const std::string payload = "{\"format_version\":1,\"generation\":" +
+        std::to_string(generation) +
+        ",\"kv\":{},\"documents\":{},\"schemas\":{},\"indexes\":[]}";
+    return std::to_string(generation) + " " + test_checksum(payload) + " " + payload + "\n";
+}
+}
 
 #define CHECK(condition) do { if (!(condition)) { std::cerr << "CHECK failed at line " << __LINE__ << ": " #condition << '\n'; return 1; } } while (false)
 int main() {
@@ -135,6 +155,22 @@ int main() {
     std::filesystem::remove(malformed_snapshot + ".tmp", ec);
     std::filesystem::remove(malformed_snapshot + ".wal", ec);
     std::filesystem::remove(malformed_snapshot + ".lock", ec);
+
+    // Complete, checksummed WAL records must still have strictly increasing generations.
+    // A valid checksum alone must not let an older state follow a newer state.
+    const std::string unordered_wal_path = "storage_engine_unordered_wal.json";
+    for (const auto& suffix : {"", ".wal", ".tmp", ".lock"}) std::filesystem::remove(unordered_wal_path + suffix, ec);
+    {
+        std::ofstream wal(unordered_wal_path + ".wal", std::ios::binary);
+        wal << test_wal_record(2) << test_wal_record(1);
+    }
+    {
+        StorageEngine damaged(unordered_wal_path);
+        CHECK(damaged.get_last_error().find("strictly increasing") != std::string::npos);
+        CHECK(!damaged.write_data("must_not_write", "x"));
+    }
+    for (const auto& suffix : {"", ".wal", ".tmp", ".lock"}) std::filesystem::remove(unordered_wal_path + suffix, ec);
+
     std::cout << "All storage engine tests passed\n";
     return 0;
 }
