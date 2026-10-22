@@ -68,6 +68,12 @@ int main(int argc, char** argv) {
         CHECK(db.get_last_error().empty());
         CHECK(db.write_data("alpha", "one"));
         CHECK(db.write_data("alpha", "two"));
+        {
+            std::ifstream wal(path + ".wal", std::ios::binary);
+            const std::string wal_contents((std::istreambuf_iterator<char>(wal)), std::istreambuf_iterator<char>());
+            CHECK(wal_contents.find("\"record_version\":2") != std::string::npos);
+            CHECK(wal_contents.find("\"base_generation\":") != std::string::npos);
+        }
         CHECK(db.read_data("alpha") == "two");
         CHECK(db.begin_transaction());
         CHECK(!db.begin_transaction());
