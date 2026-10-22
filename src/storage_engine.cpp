@@ -668,22 +668,26 @@ private:
             if (!fs::exists(wal_path(), ec) && !ec) return true;
             return fail("Cannot open write-ahead log for recovery");
         }
-        std::string bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-        in.close();
-        std::size_t start = 0;
+
+        // Stream records instead of loading the entire WAL into RAM. The WAL can
+        // be large after repeated checkpoint failures or on large databases.
+        std::string line;
+        std::size_t valid_bytes = 0;
         std::uint64_t previous_record_generation = 0;
         bool saw_record = false;
-        while (true) {
-            const std::size_t end = bytes.find('\n', start);
-            if (end == std::string::npos) {
-                // Remove the torn tail before accepting future appends; otherwise the next
-                // valid record would be concatenated to the damaged bytes.
-                if (start < bytes.size() && !truncate_wal_locked(start)) return false;
+        bool torn_tail = false;
+        while (std::getline(in, line)) {
+            if (in.eof()) {
+                // getline reached EOF without finding the required newline. Do not
+                // replay this record; truncate it only after closing the input stream.
+                torn_tail = true;
                 break;
             }
-            const std::string line = bytes.substr(start, end - start);
-            start = end + 1;
+            if (line.size() >= std::numeric_limits<std::size_t>::max() - valid_bytes)
+                return fail("Write-ahead log is too large to address safely");
+            valid_bytes += line.size() + 1;
             if (line.empty()) continue;
+
             const auto first = line.find(' ');
             const auto second = first == std::string::npos ? first : line.find(' ', first + 1);
             if (first == std::string::npos || second == std::string::npos)
@@ -691,11 +695,17 @@ private:
             const std::string generation_text = line.substr(0, first);
             const std::string expected_checksum = line.substr(first + 1, second - first - 1);
             const std::string payload = line.substr(second + 1);
-            if (checksum_text(payload) != expected_checksum) return fail("Write-ahead log checksum mismatch");
+            if (checksum_text(payload) != expected_checksum)
+                return fail("Write-ahead log checksum mismatch");
+
             json recovered;
             try { recovered = json::parse(payload); }
-            catch (const std::exception& e) { return fail(std::string("Invalid write-ahead log payload: ") + e.what()); }
-            if (!valid_state(recovered)) return fail("Unsupported or malformed state in write-ahead log");
+            catch (const std::exception& e) {
+                return fail(std::string("Invalid write-ahead log payload: ") + e.what());
+            }
+            if (!valid_state(recovered))
+                return fail("Unsupported or malformed state in write-ahead log");
+
             std::uint64_t record_generation = 0;
             try {
                 std::size_t parsed = 0;
@@ -713,8 +723,14 @@ private:
             previous_record_generation = record_generation;
             saw_record = true;
             ++wal_records_;
-            if (record_generation > state_.value("generation", std::uint64_t{0})) state_ = std::move(recovered);
+            if (record_generation > state_.value("generation", std::uint64_t{0}))
+                state_ = std::move(recovered);
         }
+
+        const bool read_error = in.bad();
+        in.close();
+        if (read_error) return fail("I/O error while reading write-ahead log");
+        if (torn_tail && !truncate_wal_locked(valid_bytes)) return false;
         return true;
     }
     void load_locked() {
