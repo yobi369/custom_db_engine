@@ -266,8 +266,14 @@ public:
         if (ec) return fail("Cannot resolve database path: " + ec.message());
         const auto active_wal = fs::absolute(wal_path(), ec).lexically_normal();
         if (ec) return fail("Cannot resolve WAL path: " + ec.message());
-        if (target == active || target == active_wal || target == fs::absolute(path_ + ".tmp", ec).lexically_normal())
-            return fail("Backup path must not overlap the active database files");
+        const auto active_snapshot_tmp = fs::absolute(path_ + ".tmp", ec).lexically_normal();
+        if (ec) return fail("Cannot resolve temporary database path: " + ec.message());
+        const auto active_lock = fs::absolute(path_ + ".lock", ec).lexically_normal();
+        if (ec) return fail("Cannot resolve database lock path: " + ec.message());
+        // Replacing the lock pathname would detach the lock held by this process:
+        // another process could then lock a new inode and write concurrently.
+        if (target == active || target == active_wal || target == active_snapshot_tmp || target == active_lock)
+            return fail("Backup path must not overlap the active database, WAL, snapshot temp, or lock file");
         if (!write_snapshot_to_path_locked(target, state_)) return false;
         last_error_.clear();
         return true;
