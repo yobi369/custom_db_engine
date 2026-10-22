@@ -2,7 +2,7 @@
 
 A C++17 embedded database prototype with persistent key-value storage, write-ahead logging (WAL), snapshot checkpoints, transactions, JSON documents, simple equality queries, subset JSON schema validation, and index metadata.
 
-> **Status:** early-stage software. This release is suitable for development and experimentation, not critical production data. It stores complete state snapshots in a write-ahead log and periodically checkpoints to JSON. It does not claim unconditional power-loss durability across all filesystems and hardware, and it does not provide multi-process coordination or full JSON Schema validation.
+> **Status:** early-stage software, not yet suitable as the sole store for critical production data. It stores complete state snapshots in a write-ahead log and periodically checkpoints to JSON. The exclusive lock prevents simultaneous handles, but the engine does not support concurrent multi-process access, and durability still depends on filesystem and hardware behavior. Full JSON Schema validation is not implemented.
 
 ## Features
 
@@ -101,7 +101,7 @@ The package exports the compiled library and public headers; the JSON dependency
 ## Current limitations and roadmap
 
 1. **Storage durability:** validate durability behavior under filesystem-specific fault injection and document the exact guarantees of each supported platform.
-2. **Concurrency:** add explicit cross-process locking and define transaction isolation.
+2. **Concurrency:** exclusive single-handle locking is implemented; define and test transaction isolation before adding multi-reader or multi-writer access.
 3. **Query engine:** implement typed predicates, projections, ordering, limits, and persistent index structures and a cost-aware query planner.
 4. **Schema enforcement:** expand beyond the currently supported flat required/property-type subset and add nested-schema validation.
 5. **Storage scaling:** replace whole-file snapshots with a page-oriented storage manager and B+ tree after profiling.
