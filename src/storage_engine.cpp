@@ -543,20 +543,60 @@ public:
     bool create_index(const std::string& field_name) {
         std::lock_guard<std::mutex> lock(mutex_);
         if (!valid_name(field_name)) return fail("Index field name must not be empty");
-        json next = writable_state_locked();
-        for (const auto& index : next["indexes"])
+        if (load_failed_) return fail("Database failed to load; refusing to overwrite the existing file");
+        json& view = in_transaction_ ? transaction_state_ : state_;
+        for (const auto& index : view["indexes"])
             if (index == field_name) return fail("Index already exists: " + field_name);
-        next["indexes"].push_back(field_name);
-        return finish_write_locked(std::move(next));
+        if (in_transaction_) {
+            view["indexes"].push_back(field_name);
+            last_error_.clear();
+            return true;
+        }
+        const auto current_generation = state_.value("generation", std::uint64_t{0});
+        if (current_generation >= std::numeric_limits<std::uint64_t>::max() - 1)
+            return fail("Database generation counter is exhausted; refusing to wrap the generation");
+        const auto target_generation = current_generation + 1;
+        json patch = json::array({
+            json{{"op", "add"}, {"path", "/indexes/-"}, {"value", field_name}},
+            json{{"op", "replace"}, {"path", "/generation"}, {"value", target_generation}}
+        });
+        if (!append_wal_patch_locked(current_generation, target_generation, patch)) return false;
+        state_["indexes"].push_back(field_name);
+        state_["generation"] = target_generation;
+        last_error_.clear();
+        checkpoint_if_needed_locked(state_);
+        return true;
     }
     bool drop_index(const std::string& field_name) {
         std::lock_guard<std::mutex> lock(mutex_);
-        json next = writable_state_locked();
-        auto& indexes = next["indexes"];
+        if (load_failed_) return fail("Database failed to load; refusing to overwrite the existing file");
+        json& view = in_transaction_ ? transaction_state_ : state_;
+        auto& indexes = view["indexes"];
+        auto found = indexes.end();
         for (auto it = indexes.begin(); it != indexes.end(); ++it) {
-            if (*it == field_name) { indexes.erase(it); return finish_write_locked(std::move(next)); }
+            if (*it == field_name) { found = it; break; }
         }
-        return fail("Index does not exist: " + field_name);
+        if (found == indexes.end()) return fail("Index does not exist: " + field_name);
+        const auto index_position = static_cast<std::size_t>(std::distance(indexes.begin(), found));
+        if (in_transaction_) {
+            indexes.erase(found);
+            last_error_.clear();
+            return true;
+        }
+        const auto current_generation = state_.value("generation", std::uint64_t{0});
+        if (current_generation >= std::numeric_limits<std::uint64_t>::max() - 1)
+            return fail("Database generation counter is exhausted; refusing to wrap the generation");
+        const auto target_generation = current_generation + 1;
+        json patch = json::array({
+            json{{"op", "remove"}, {"path", "/indexes/" + std::to_string(index_position)}},
+            json{{"op", "replace"}, {"path", "/generation"}, {"value", target_generation}}
+        });
+        if (!append_wal_patch_locked(current_generation, target_generation, patch)) return false;
+        state_["indexes"].erase(state_["indexes"].begin() + static_cast<json::difference_type>(index_position));
+        state_["generation"] = target_generation;
+        last_error_.clear();
+        checkpoint_if_needed_locked(state_);
+        return true;
     }
     bool begin_transaction() {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -632,6 +672,7 @@ private:
     bool fail(std::string message) { last_error_ = std::move(message); return false; }
     bool set_schema(const std::string& definition, bool create) {
         std::lock_guard<std::mutex> lock(mutex_);
+        if (load_failed_) return fail("Database failed to load; refusing to overwrite the existing file");
         json schema;
         try { schema = json::parse(definition); }
         catch (const std::exception& e) { return fail(std::string("Invalid schema JSON: ") + e.what()); }
@@ -640,11 +681,30 @@ private:
         if (!validate_schema_definition(schema, schema_error)) return fail("Invalid schema: " + schema_error);
         const std::string name = schema.value("collection", std::string("default"));
         if (!valid_name(name)) return fail("Schema collection name must not be empty");
-        json next = writable_state_locked();
-        if (create && next["schemas"].contains(name)) return fail("Schema already exists: " + name);
-        if (!create && !next["schemas"].contains(name)) return fail("Schema does not exist: " + name);
-        next["schemas"][name] = schema;
-        return finish_write_locked(std::move(next));
+        json& view = in_transaction_ ? transaction_state_ : state_;
+        const bool exists = view["schemas"].contains(name);
+        if (create && exists) return fail("Schema already exists: " + name);
+        if (!create && !exists) return fail("Schema does not exist: " + name);
+        if (in_transaction_) {
+            view["schemas"][name] = schema;
+            last_error_.clear();
+            return true;
+        }
+        const auto current_generation = state_.value("generation", std::uint64_t{0});
+        if (current_generation >= std::numeric_limits<std::uint64_t>::max() - 1)
+            return fail("Database generation counter is exhausted; refusing to wrap the generation");
+        const auto target_generation = current_generation + 1;
+        const std::string schema_path = "/schemas/" + escape_json_pointer_token(name);
+        json patch = json::array({
+            json{{"op", exists ? "replace" : "add"}, {"path", schema_path}, {"value", schema}},
+            json{{"op", "replace"}, {"path", "/generation"}, {"value", target_generation}}
+        });
+        if (!append_wal_patch_locked(current_generation, target_generation, patch)) return false;
+        state_["schemas"][name] = std::move(schema);
+        state_["generation"] = target_generation;
+        last_error_.clear();
+        checkpoint_if_needed_locked(state_);
+        return true;
     }
     json writable_state_locked() const { return in_transaction_ ? transaction_state_ : state_; }
     const json& readable_state_locked() const { return in_transaction_ ? transaction_state_ : state_; }
