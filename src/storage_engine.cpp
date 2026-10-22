@@ -234,7 +234,12 @@ public:
         state_ = empty_state();
         index_cache_.clear();
         load_failed_ = false;
-        if (!checkpoint_locked(state_)) return false;
+        if (!checkpoint_locked(state_)) {
+            // Snapshot publication may have partially succeeded; do not permit writes
+            // through a handle whose initial on-disk state is uncertain.
+            load_failed_ = true;
+            return false;
+        }
         last_error_.clear();
         return true;
     }
@@ -244,8 +249,12 @@ public:
         if (in_transaction_) return fail("Cannot delete database during a transaction");
         std::error_code ec1, ec2;
         const bool snapshot_removed = fs::remove(path_, ec1);
+        // Never remove the WAL if removing the snapshot failed. Every WAL record
+        // contains a complete state, so retaining it is the recovery path if the
+        // snapshot is gone but WAL cleanup fails.
+        if (ec1) return fail("Cannot delete database snapshot: " + ec1.message());
         const bool wal_removed = fs::remove(wal_path(), ec2);
-        if (ec1 || ec2) return fail("Cannot delete database: " + (ec1 ? ec1.message() : ec2.message()));
+        if (ec2) return fail("Cannot delete database WAL: " + ec2.message());
         if (!snapshot_removed && !wal_removed) return fail("Database file does not exist");
         state_ = empty_state();
         wal_records_ = 0;
@@ -302,7 +311,13 @@ public:
         if (base_generation >= std::numeric_limits<std::uint64_t>::max() - 1)
             return fail("Database generation counter is exhausted; restore cannot safely advance it");
         restored["generation"] = base_generation + 1;
-        if (!write_snapshot_locked(restored)) return false;
+        if (!write_snapshot_locked(restored)) {
+            // Publication may have completed before a durability/metadata-sync error
+            // was reported. The on-disk snapshot can therefore differ from state_.
+            // Disable this handle until reopening re-establishes the authoritative state.
+            load_failed_ = true;
+            return false;
+        }
         state_ = std::move(restored);
         transaction_state_ = json();
         in_transaction_ = false;
