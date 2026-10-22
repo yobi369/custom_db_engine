@@ -198,12 +198,14 @@ int main() {
     std::filesystem::remove(symlink_alias, ec);
     {
         StorageEngine db(path);
+        CHECK(db.create_database());
         std::filesystem::create_symlink(path, symlink_alias, ec);
         CHECK(!ec);
         StorageEngine alias_db(symlink_alias);
         CHECK(alias_db.get_last_error().find("already open") != std::string::npos);
     }
     std::filesystem::remove(symlink_alias, ec);
+    for (const auto& suffix : {"", ".wal", ".tmp", ".lock"}) std::filesystem::remove(path + suffix, ec);
 #endif
 
     std::cout << "All storage engine tests passed\n";
