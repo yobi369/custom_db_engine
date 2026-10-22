@@ -177,6 +177,20 @@ int main() {
     }
     for (const auto& suffix : {"", ".wal", ".tmp", ".lock"}) std::filesystem::remove(unordered_wal_path + suffix, ec);
 
+
+    const std::string invalid_name_snapshot = "storage_engine_invalid_name_snapshot.json";
+    for (const auto& suffix : {"", ".wal", ".tmp", ".lock"}) std::filesystem::remove(invalid_name_snapshot + suffix, ec);
+    {
+        std::ofstream snapshot(invalid_name_snapshot, std::ios::binary);
+        snapshot << R"({"format_version":1,"generation":0,"kv":{"":"invalid-key"},"documents":{},"schemas":{},"indexes":[]})";
+    }
+    {
+        StorageEngine damaged(invalid_name_snapshot);
+        CHECK(!damaged.get_last_error().empty());
+        CHECK(!damaged.write_data("must_not_write", "x"));
+    }
+    for (const auto& suffix : {"", ".wal", ".tmp", ".lock"}) std::filesystem::remove(invalid_name_snapshot + suffix, ec);
+
     std::cout << "All storage engine tests passed\n";
     return 0;
 }
