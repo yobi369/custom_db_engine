@@ -80,6 +80,12 @@ int main() {
         CHECK(!db.delete_data("missing"));
         CHECK(db.check_integrity());
         CHECK(db.backup_database(backup));
+        // A backup must never replace the lock pathname held by the active handle.
+        CHECK(!db.backup_database(path + ".lock"));
+        {
+            StorageEngine still_locked(path);
+            CHECK(still_locked.get_last_error().find("already open") != std::string::npos);
+        }
         CHECK(db.write_data("alpha", "changed-after-backup"));
         CHECK(db.restore_database(backup));
         CHECK(db.read_data("alpha") == "two");
