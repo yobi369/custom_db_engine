@@ -2,7 +2,7 @@
 
 A C++17 embedded database prototype with persistent key-value storage, write-ahead logging (WAL), snapshot checkpoints, transactions, JSON documents, simple equality queries, subset JSON schema validation, and index metadata.
 
-> **Status:** early-stage software, not yet suitable as the sole store for critical production data. It stores complete state snapshots in a write-ahead log and periodically checkpoints to JSON. The exclusive lock prevents simultaneous handles, but the engine does not support concurrent multi-process access, and durability still depends on filesystem and hardware behavior. Full JSON Schema validation is not implemented.
+> **Status:** early-stage software, not yet suitable as the sole store for critical production data. New writes use versioned JSON Patch WAL records and periodically checkpoint snapshots to JSON; legacy full-state WAL records remain readable. The exclusive lock prevents simultaneous handles, but the engine does not support concurrent multi-process access, and durability still depends on filesystem and hardware behavior. Full JSON Schema validation is not implemented.
 
 ## Features
 
