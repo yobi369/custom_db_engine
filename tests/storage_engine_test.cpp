@@ -2,6 +2,9 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <atomic>
+#include <thread>
+#include <vector>
 #include <cstdint>
 #include <iomanip>
 #include <sstream>
@@ -207,6 +210,37 @@ int main() {
     std::filesystem::remove(symlink_alias, ec);
     for (const auto& suffix : {"", ".wal", ".tmp", ".lock"}) std::filesystem::remove(path + suffix, ec);
 #endif
+
+
+    const std::string concurrent_path = "storage_engine_concurrent_test.json";
+    for (const auto& suffix : {"", ".wal", ".tmp", ".lock"}) std::filesystem::remove(concurrent_path + suffix, ec);
+    {
+        StorageEngine db(concurrent_path);
+        std::atomic<int> write_failures{0};
+        std::vector<std::thread> workers;
+        constexpr int thread_count = 8;
+        constexpr int writes_per_thread = 25;
+        for (int thread_id = 0; thread_id < thread_count; ++thread_id) {
+            workers.emplace_back([&, thread_id] {
+                for (int i = 0; i < writes_per_thread; ++i) {
+                    const std::string key = "thread-" + std::to_string(thread_id) + "-key-" + std::to_string(i);
+                    if (!db.write_data(key, "value-" + std::to_string(thread_id) + "-" + std::to_string(i)))
+                        ++write_failures;
+                }
+            });
+        }
+        for (auto& worker : workers) worker.join();
+        CHECK(write_failures.load() == 0);
+        for (int thread_id = 0; thread_id < thread_count; ++thread_id) {
+            for (int i = 0; i < writes_per_thread; ++i) {
+                const std::string key = "thread-" + std::to_string(thread_id) + "-key-" + std::to_string(i);
+                CHECK(db.read_data(key) == "value-" + std::to_string(thread_id) + "-" + std::to_string(i));
+                CHECK(db.get_last_error().empty());
+            }
+        }
+        CHECK(db.check_integrity());
+    }
+    for (const auto& suffix : {"", ".wal", ".tmp", ".lock"}) std::filesystem::remove(concurrent_path + suffix, ec);
 
     std::cout << "All storage engine tests passed\n";
     return 0;
