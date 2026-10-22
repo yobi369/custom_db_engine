@@ -204,6 +204,28 @@ public:
             load_failed_ = true;
             return;
         }
+        if (path_.find('\0') != std::string::npos) {
+            fail("Database path must not contain NUL");
+            load_failed_ = true;
+            return;
+        }
+        // Canonicalize the path before deriving the lock filename. Without this,
+        // opening the same database through a symlink or alternate relative path
+        // could acquire a different lock file and permit concurrent writers.
+        std::error_code path_error;
+        const fs::path absolute_path = fs::absolute(fs::path(path_), path_error);
+        if (path_error) {
+            fail("Cannot resolve database path: " + path_error.message());
+            load_failed_ = true;
+            return;
+        }
+        const fs::path canonical_path = fs::weakly_canonical(absolute_path, path_error);
+        if (path_error) {
+            fail("Cannot canonicalize database path: " + path_error.message());
+            load_failed_ = true;
+            return;
+        }
+        path_ = canonical_path.string();
         if (acquire_process_lock && !acquire_lock_locked()) {
             load_failed_ = true;
             return;
