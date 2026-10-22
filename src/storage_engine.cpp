@@ -596,9 +596,19 @@ private:
             const bool written = std::fwrite(record.data(), 1, record.size(), wal) == record.size();
             const bool flushed = written && durable_flush(wal);
             const bool closed = std::fclose(wal) == 0;
-            if (!written || !flushed || !closed) return fail("Failed to append and durably flush write-ahead log record");
-            if (!wal_existed && !sync_parent_directory(fs::path(wal_path())))
-                return fail("WAL record written but parent directory sync failed");
+            if (!written || !flushed || !closed) {
+                // A failed append may have left a partial record at EOF. Continuing to
+                // append in this handle could turn a recoverable torn tail into a
+                // malformed complete record. Poison the handle and require reopen/recovery.
+                load_failed_ = true;
+                return fail("Failed to append and durably flush write-ahead log record; handle disabled until reopen");
+            }
+            if (!wal_existed && !sync_parent_directory(fs::path(wal_path()))) {
+                // The record may be present but its directory entry may not be durable.
+                // Do not acknowledge later writes from a handle with uncertain durability.
+                load_failed_ = true;
+                return fail("WAL record written but parent directory sync failed; handle disabled until reopen");
+            }
         }
         ++wal_records_;
         // Checkpoint periodically. A valid WAL record remains the recovery source if checkpointing fails.
@@ -618,6 +628,8 @@ private:
         std::string bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
         in.close();
         std::size_t start = 0;
+        std::uint64_t previous_record_generation = 0;
+        bool saw_record = false;
         while (true) {
             const std::size_t end = bytes.find('\n', start);
             if (end == std::string::npos) {
@@ -642,10 +654,19 @@ private:
             catch (const std::exception& e) { return fail(std::string("Invalid write-ahead log payload: ") + e.what()); }
             if (!valid_state(recovered)) return fail("Unsupported or malformed state in write-ahead log");
             std::uint64_t record_generation = 0;
-            try { record_generation = static_cast<std::uint64_t>(std::stoull(generation_text)); }
-            catch (...) { return fail("Invalid write-ahead log generation"); }
+            try {
+                std::size_t parsed = 0;
+                record_generation = static_cast<std::uint64_t>(std::stoull(generation_text, &parsed));
+                if (parsed != generation_text.size() || generation_text.empty() ||
+                    generation_text.front() == '-' || generation_text.front() == '+')
+                    return fail("Invalid write-ahead log generation");
+            } catch (...) { return fail("Invalid write-ahead log generation"); }
             if (record_generation != recovered["generation"].get<std::uint64_t>())
                 return fail("Write-ahead log generation mismatch");
+            if (saw_record && record_generation <= previous_record_generation)
+                return fail("Write-ahead log generations are not strictly increasing");
+            previous_record_generation = record_generation;
+            saw_record = true;
             ++wal_records_;
             if (record_generation > state_.value("generation", std::uint64_t{0})) state_ = std::move(recovered);
         }
