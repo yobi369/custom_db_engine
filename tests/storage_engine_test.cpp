@@ -75,6 +75,9 @@ int main(int argc, char** argv) {
             CHECK(wal_contents.find("\"base_generation\":") != std::string::npos);
         }
         CHECK(db.read_data("alpha") == "two");
+        CHECK(db.write_data("path/with~escaped-tokens", "pointer-safe"));
+        CHECK(db.read_data("path/with~escaped-tokens") == "pointer-safe");
+        CHECK(db.delete_data("path/with~escaped-tokens"));
         CHECK(db.begin_transaction());
         CHECK(!db.begin_transaction());
         CHECK(db.write_data("alpha", "transactional"));
