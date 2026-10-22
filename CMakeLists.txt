@@ -29,6 +29,12 @@ else()
 endif()
 
 option(CUSTOM_DB_ENGINE_BUILD_EXAMPLES "Build example programs" ON)
+
+option(CUSTOM_DB_ENGINE_BUILD_BENCHMARKS "Build storage performance benchmark" ON)
+if(CUSTOM_DB_ENGINE_BUILD_BENCHMARKS)
+  add_executable(custom_db_engine_benchmark benchmarks/storage_engine_benchmark.cpp)
+  target_link_libraries(custom_db_engine_benchmark PRIVATE CustomDBEngine::custom_db_engine)
+endif()
 if(CUSTOM_DB_ENGINE_BUILD_EXAMPLES)
   add_executable(custom_db_engine_example examples/basic_usage.cpp)
   target_link_libraries(custom_db_engine_example PRIVATE CustomDBEngine::custom_db_engine)
