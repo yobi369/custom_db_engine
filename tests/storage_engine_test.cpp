@@ -93,6 +93,8 @@ int main(int argc, char** argv) {
         const auto results = db.query_documents("users", {{"name", "Alice"}});
         CHECK(results.size() == 1);
         CHECK(results.front() == R"({"age":30,"name":"Alice"})");
+        CHECK(db.write_document("collection/with~tokens", R"({"id":1})"));
+        CHECK(db.query_documents("collection/with~tokens", {{"id", "1"}}).size() == 1);
         CHECK(!db.write_document("users", "not json"));
         CHECK(db.create_schema(R"({"collection":"users","type":"object"})"));
         CHECK(!db.create_schema(R"({"collection":"users","type":"object"})"));
