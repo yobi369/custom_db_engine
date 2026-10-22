@@ -786,8 +786,6 @@ private:
             previous_record_generation = record_generation;
             saw_record = true;
             ++wal_records_;
-            if (record_generation > state_.value("generation", std::uint64_t{0}))
-                state_ = std::move(recovered);
         }
 
         const bool read_error = in.bad();
