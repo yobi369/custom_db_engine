@@ -35,8 +35,9 @@ if(CUSTOM_DB_ENGINE_BUILD_EXAMPLES)
 endif()
 
 if(BUILD_TESTING)
+  find_package(Threads REQUIRED)
   add_executable(storage_engine_test tests/storage_engine_test.cpp)
-  target_link_libraries(storage_engine_test PRIVATE CustomDBEngine::custom_db_engine)
+  target_link_libraries(storage_engine_test PRIVATE CustomDBEngine::custom_db_engine Threads::Threads)
   add_test(NAME storage_engine_test COMMAND storage_engine_test)
   set_tests_properties(storage_engine_test PROPERTIES WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
 
