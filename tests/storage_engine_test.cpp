@@ -206,6 +206,24 @@ int main(int argc, char** argv) {
     }
     for (const auto& suffix : {"", ".wal", ".tmp", ".lock"}) std::filesystem::remove(unordered_wal_path + suffix, ec);
 
+    // A valid checksum cannot make a delta applicable to the wrong base generation.
+    const std::string mismatched_patch_path = "storage_engine_mismatched_patch.json";
+    for (const auto& suffix : {"", ".wal", ".tmp", ".lock"}) std::filesystem::remove(mismatched_patch_path + suffix, ec);
+    {
+        StorageEngine db(mismatched_patch_path);
+        CHECK(db.write_data("safe", "value"));
+    }
+    {
+        const std::string payload = R"({"base_generation":5,"generation":6,"patch":[{"op":"replace","path":"/generation","value":6}],"record_version":2})";
+        std::ofstream wal(mismatched_patch_path + ".wal", std::ios::binary | std::ios::app);
+        wal << "6 " << test_checksum(payload) << " " << payload << "\n";
+    }
+    {
+        StorageEngine damaged(mismatched_patch_path);
+        CHECK(damaged.get_last_error().find("base generation mismatch") != std::string::npos);
+        CHECK(!damaged.write_data("must_not_write", "x"));
+    }
+    for (const auto& suffix : {"", ".wal", ".tmp", ".lock"}) std::filesystem::remove(mismatched_patch_path + suffix, ec);
 
     const std::string invalid_name_snapshot = "storage_engine_invalid_name_snapshot.json";
     for (const auto& suffix : {"", ".wal", ".tmp", ".lock"}) std::filesystem::remove(invalid_name_snapshot + suffix, ec);
