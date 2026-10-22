@@ -208,6 +208,23 @@ int main() {
     for (const auto& suffix : {"", ".wal", ".tmp", ".lock"}) std::filesystem::remove(path + suffix, ec);
 #endif
 
+
+    // Exercise recovery across a long WAL without requiring the entire log to be
+    // represented as one in-memory buffer.
+    const std::string long_wal_path = "storage_engine_long_wal.json";
+    for (const auto& suffix : {"", ".wal", ".tmp", ".lock"}) std::filesystem::remove(long_wal_path + suffix, ec);
+    {
+        std::ofstream wal(long_wal_path + ".wal", std::ios::binary);
+        for (unsigned long long generation = 1; generation <= 5000; ++generation)
+            wal << test_wal_record(generation);
+    }
+    {
+        StorageEngine recovered(long_wal_path);
+        CHECK(recovered.get_last_error().empty());
+        CHECK(recovered.check_integrity());
+    }
+    for (const auto& suffix : {"", ".wal", ".tmp", ".lock"}) std::filesystem::remove(long_wal_path + suffix, ec);
+
     std::cout << "All storage engine tests passed\n";
     return 0;
 }
