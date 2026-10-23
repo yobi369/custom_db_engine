@@ -830,21 +830,36 @@ private:
             return fail("Cannot open write-ahead log for recovery");
         }
 
-        // Stream records instead of loading the entire WAL into RAM. The WAL can
-        // be large after repeated checkpoint failures or on large databases.
+        // Read one bounded record at a time. std::getline can allocate an
+        // arbitrarily large string before a caller gets a chance to inspect it.
+        constexpr std::size_t kMaxWalRecordBytes = 8U * 1024U * 1024U;
         std::string line;
         std::size_t valid_bytes = 0;
         std::uint64_t previous_record_generation = 0;
         bool saw_record = false;
         bool torn_tail = false;
-        while (std::getline(in, line)) {
-            if (in.eof()) {
-                // getline reached EOF without finding the required newline. Do not
-                // replay this record; truncate it only after closing the input stream.
-                torn_tail = true;
-                break;
+        bool reached_eof = false;
+        while (!reached_eof) {
+            line.clear();
+            bool terminated = false;
+            while (!terminated) {
+                const int next = in.get();
+                if (next == std::char_traits<char>::eof()) {
+                    if (in.bad()) return fail("I/O error while reading write-ahead log");
+                    if (line.empty()) reached_eof = true;
+                    else torn_tail = true;
+                    break;
+                }
+                if (next == '\\n') {
+                    terminated = true;
+                    break;
+                }
+                if (line.size() >= kMaxWalRecordBytes)
+                    return fail("Write-ahead log record exceeds the 8 MiB safety limit");
+                line.push_back(static_cast<char>(next));
             }
-            if (line.size() >= std::numeric_limits<std::size_t>::max() - valid_bytes)
+            if (reached_eof || torn_tail) break;
+            if (line.size() + 1 > std::numeric_limits<std::size_t>::max() - valid_bytes)
                 return fail("Write-ahead log is too large to address safely");
             valid_bytes += line.size() + 1;
             if (line.empty()) continue;
