@@ -850,7 +850,7 @@ private:
                     else torn_tail = true;
                     break;
                 }
-                if (next == '\\n') {
+                if (next == '\n') {
                     terminated = true;
                     break;
                 }
