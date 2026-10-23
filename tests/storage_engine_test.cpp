@@ -300,6 +300,21 @@ int main(int argc, char** argv) {
     for (const auto& suffix : {"", ".wal", ".tmp", ".lock"}) std::filesystem::remove(long_wal_path + suffix, ec);
 
 
+    // A complete oversized line must fail closed before unbounded allocation;
+    // it must not be mistaken for a torn final record and silently truncated.
+    const std::string oversized_path = "storage_engine_oversized_wal.json";
+    for (const auto& suffix : {"", ".wal", ".tmp", ".lock"}) std::filesystem::remove(oversized_path + suffix, ec);
+    {
+        std::ofstream wal(oversized_path + ".wal", std::ios::binary);
+        wal << std::string(8U * 1024U * 1024U + 1U, 'x') << '\n';
+    }
+    {
+        StorageEngine oversized(oversized_path);
+        CHECK(oversized.get_last_error().find("8 MiB safety limit") != std::string::npos);
+        CHECK(!oversized.write_data("must_not_write", "x"));
+    }
+    for (const auto& suffix : {"", ".wal", ".tmp", ".lock"}) std::filesystem::remove(oversized_path + suffix, ec);
+
     const std::string concurrent_path = "storage_engine_concurrent_test.json";
     for (const auto& suffix : {"", ".wal", ".tmp", ".lock"}) std::filesystem::remove(concurrent_path + suffix, ec);
     {
