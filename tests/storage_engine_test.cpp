@@ -306,7 +306,7 @@ int main(int argc, char** argv) {
     for (const auto& suffix : {"", ".wal", ".tmp", ".lock"}) std::filesystem::remove(oversized_path + suffix, ec);
     {
         std::ofstream wal(oversized_path + ".wal", std::ios::binary);
-        wal << std::string(8U * 1024U * 1024U + 1U, 'x') << '\\n';
+        wal << std::string(8U * 1024U * 1024U + 1U, 'x') << '\n';
     }
     {
         StorageEngine oversized(oversized_path);
