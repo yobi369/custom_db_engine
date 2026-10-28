@@ -413,6 +413,19 @@ public:
         last_error_.clear();
         return it->get<std::string>();
     }
+    ReadResult read_data_result(const std::string& key) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (load_failed_) return {false, {}, last_error_};
+        const json& view = readable_state_locked();
+        const auto it = view["kv"].find(key);
+        if (it == view["kv"].end()) {
+            const std::string message = "Key not found: " + key;
+            fail(message);
+            return {false, {}, message};
+        }
+        last_error_.clear();
+        return {true, it->get<std::string>(), {}};
+    }
     bool delete_data(const std::string& key) {
         std::lock_guard<std::mutex> lock(mutex_);
         if (load_failed_) return fail("Database failed to load; refusing to overwrite the existing file");
@@ -978,6 +991,7 @@ bool StorageEngine::restore_database(const std::string& p) { return pimpl->resto
 bool StorageEngine::check_integrity() { return pimpl->check_integrity(); }
 bool StorageEngine::write_data(const std::string& k, const std::string& v) { return pimpl->write_data(k, v); }
 std::string StorageEngine::read_data(const std::string& k) { return pimpl->read_data(k); }
+ReadResult StorageEngine::read_data_result(const std::string& k) { return pimpl->read_data_result(k); }
 bool StorageEngine::delete_data(const std::string& k) { return pimpl->delete_data(k); }
 bool StorageEngine::write_document(const std::string& c, const std::string& d) { return pimpl->write_document(c, d); }
 std::vector<std::string> StorageEngine::query_documents(const std::string& c, const std::map<std::string, std::string>& f) { return pimpl->query_documents(c, f); }
