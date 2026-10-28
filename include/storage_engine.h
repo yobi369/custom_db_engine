@@ -4,6 +4,12 @@
 #include <memory>
 #include <string>
 #include <vector>
+struct ReadResult {
+    bool found = false;
+    std::string value;
+    std::string error;
+};
+
 class StorageEngine {
 public:
     explicit StorageEngine(const std::string& db_path);
@@ -19,6 +25,8 @@ public:
     bool check_integrity();
     bool write_data(const std::string& key, const std::string& value);
     std::string read_data(const std::string& key);
+    // Unambiguous read API: distinguishes a missing key from a stored empty string.
+    ReadResult read_data_result(const std::string& key);
     bool delete_data(const std::string& key);
     bool write_document(const std::string& collection, const std::string& json_data);
     std::vector<std::string> query_documents(const std::string& collection, const std::map<std::string, std::string>& filters);
