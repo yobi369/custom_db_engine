@@ -1,4 +1,10 @@
-# Custom Database Engine
+# CustomDB — Embedded C++ Data Engine
+
+A lightweight embedded C++17 data engine for local applications that need persistent key-value storage and JSON documents without operating a separate database server.
+
+> **Product status: preview / early-stage.** CustomDB is not yet recommended as the sole store for critical production data. Its current model is single-active-handle, with versioned JSON snapshots and a write-ahead log; filesystem and hardware behavior still affect durability guarantees.
+
+**Product docs:** [Product vision](docs/PRODUCT_VISION.md) · [Release gates](docs/RELEASE_GATES.md) · [Architecture decisions](docs/ARCHITECTURE_DECISIONS.md) · [On-disk format and guarantees](docs/FORMAT.md)
 
 A C++17 embedded database prototype with persistent key-value storage, write-ahead logging (WAL), snapshot checkpoints, transactions, JSON documents, simple equality queries, subset JSON schema validation, and index metadata.
 
