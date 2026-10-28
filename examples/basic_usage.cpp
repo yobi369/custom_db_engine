@@ -12,11 +12,12 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    const std::string greeting = database.read_data("greeting");
-    if (!database.get_last_error().empty()) {
-        std::cerr << "Read failed: " << database.get_last_error() << '\n';
+    const ReadResult greeting_result = database.read_data_result("greeting");
+    if (!greeting_result.found) {
+        std::cerr << "Read failed: " << greeting_result.error << '\n';
         return 1;
     }
+    const std::string& greeting = greeting_result.value;
 
     if (!database.check_integrity()) {
         std::cerr << "Integrity check failed: " << database.get_last_error() << '\n';
