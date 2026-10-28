@@ -66,6 +66,19 @@ int main(int argc, char** argv) {
         CHECK(db.write_data("empty", ""));
         CHECK(db.read_data("empty").empty());
         CHECK(db.get_last_error().empty());
+        const ReadResult empty_result = db.read_data_result("empty");
+        CHECK(empty_result.found);
+        CHECK(empty_result.value.empty());
+        CHECK(empty_result.error.empty());
+        const ReadResult missing_result = db.read_data_result("missing-result-key");
+        CHECK(!missing_result.found);
+        CHECK(missing_result.value.empty());
+        CHECK(missing_result.error.find("Key not found") != std::string::npos);
+        CHECK(db.write_data("non-empty-result-key", "present"));
+        const ReadResult present_result = db.read_data_result("non-empty-result-key");
+        CHECK(present_result.found);
+        CHECK(present_result.value == "present");
+        CHECK(present_result.error.empty());
         CHECK(db.write_data("alpha", "one"));
         CHECK(db.write_data("alpha", "two"));
         {
