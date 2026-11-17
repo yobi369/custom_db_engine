@@ -29,6 +29,10 @@ int main() {
     const auto admin = store.create_user("admin@example.test", "correct horse battery staple", "admin");
     assert(admin.role == "admin");
     assert(store.authenticate_password("admin@example.test", "correct horse battery staple"));
+    bool last_admin_protected = false;
+    try { (void)store.set_user_enabled("admin@example.test", false); }
+    catch (const std::runtime_error&) { last_admin_protected = true; }
+    assert(last_admin_protected);
     assert(!store.authenticate_password("admin@example.test", "wrong password"));
 
     bool duplicate_rejected = false;
