@@ -55,6 +55,15 @@ int main() {
     assert(reopened.find_user("admin@example.test"));
     assert(reopened.find_user("reader01")->role == "read_only");
 
+    AuthStore bootstrapped(root / "bootstrap" / "auth.json");
+    const auto first_admin = bootstrapped.bootstrap_admin("owner01", "strong bootstrap password");
+    assert(first_admin.role == "admin");
+    assert(bootstrapped.authenticate_password("owner01", "strong bootstrap password"));
+    bool bootstrap_refused = false;
+    try { (void)bootstrapped.bootstrap_admin("owner02", "another strong password"); }
+    catch (const std::runtime_error&) { bootstrap_refused = true; }
+    assert(bootstrap_refused);
+
     std::filesystem::remove_all(root);
     std::cout << "Authentication store tests passed\n";
     return 0;
