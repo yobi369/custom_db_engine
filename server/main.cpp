@@ -424,9 +424,15 @@ int main(int argc, char* argv[]) {
 
     server.Post("/v1/auth/logout", [&auth](const httplib::Request& request, httplib::Response& response) {
         const auto authorization = request.get_header_value("Authorization");
-        if (authorization.size() <= 7 || !auth.revoke_token_value(authorization.substr(7)))
+        if (authorization.size() <= 7)
             return respond_json(response, 401, {{"error", "session is no longer active"}});
-        respond_json(response, 200, {{"status", "logged_out"}});
+        try {
+            if (!auth.revoke_token_value(authorization.substr(7)))
+                return respond_json(response, 401, {{"error", "session is no longer active"}});
+            respond_json(response, 200, {{"status", "logged_out"}});
+        } catch (const std::exception&) {
+            respond_json(response, 503, {{"error", "authentication store unavailable"}});
+        }
     });
 
     server.Post(R"(/v1/auth/tokens/([a-f0-9]{32})/revoke)",
