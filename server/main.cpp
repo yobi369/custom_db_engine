@@ -288,6 +288,60 @@ int main() {
             respond_json(response, 200, {{"status", "index_dropped"}, {"field", field}});
         });
 
+
+    server.Post(R"(/v1/databases/([a-zA-Z][a-zA-Z0-9_-]{0,62})/transactions)",
+        [root, api_key](const httplib::Request& request, httplib::Response& response) {
+            if (!authorized(request, api_key)) return respond_json(response, 401, {{"error", "unauthorized"}});
+            const auto name = request.matches[1].str();
+            const auto body = json::parse(request.body, nullptr, false);
+            if (body.is_discarded() || !body.is_object() || !body.contains("operations") ||
+                !body["operations"].is_array() || body["operations"].empty() || body["operations"].size() > 100)
+                return respond_json(response, 400, {{"error", "operations must be a non-empty array with at most 100 entries"}});
+            std::lock_guard<std::mutex> lock(engine_mutex);
+            const auto path = database_path(root, name);
+            if (!fs::is_regular_file(path)) return respond_json(response, 404, {{"error", "database not found"}});
+            try {
+                StorageEngine engine(path.string());
+                if (!engine.begin_transaction())
+                    return respond_json(response, 409, {{"error", engine.get_last_error()}});
+                std::size_t completed = 0;
+                for (const auto& operation : body["operations"]) {
+                    if (!operation.is_object() || !operation.contains("type") || !operation["type"].is_string()) {
+                        engine.rollback_transaction();
+                        return respond_json(response, 400, {{"error", "each operation requires a string type"}, {"failed_operation", completed}});
+                    }
+                    const auto type = operation["type"].get<std::string>();
+                    bool ok = false;
+                    if (type == "put" && operation.contains("key") && operation["key"].is_string() &&
+                        operation.contains("value") && operation["value"].is_string()) {
+                        ok = engine.write_data(operation["key"].get<std::string>(), operation["value"].get<std::string>());
+                    } else if (type == "delete" && operation.contains("key") && operation["key"].is_string()) {
+                        ok = engine.delete_data(operation["key"].get<std::string>());
+                    } else if (type == "insert_document" && operation.contains("collection") &&
+                        operation["collection"].is_string() && operation.contains("document") && operation["document"].is_object()) {
+                        ok = engine.write_document(operation["collection"].get<std::string>(), operation["document"].dump());
+                    } else {
+                        engine.rollback_transaction();
+                        return respond_json(response, 400, {{"error", "unsupported or malformed operation"}, {"failed_operation", completed}});
+                    }
+                    if (!ok) {
+                        const auto error = engine.get_last_error();
+                        engine.rollback_transaction();
+                        return respond_json(response, 400, {{"error", error}, {"failed_operation", completed}});
+                    }
+                    ++completed;
+                }
+                if (!engine.commit_transaction()) {
+                    const auto error = engine.get_last_error();
+                    engine.rollback_transaction();
+                    return respond_json(response, 500, {{"error", error}});
+                }
+                respond_json(response, 200, {{"status", "committed"}, {"operations", completed}});
+            } catch (const std::exception& error) {
+                respond_json(response, 500, {{"error", error.what()}});
+            }
+        });
+
     std::cout << "CustomDB server listening on " << host << ':' << port
               << " using data directory " << root << '\n';
     if (!api_key.empty()) std::cout << "API-key authentication is enabled.\n";
