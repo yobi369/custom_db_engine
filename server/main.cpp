@@ -363,7 +363,8 @@ int main() {
             const auto name = request.matches[1].str();
             const auto backup_name = request.matches[2].str();
             const auto body = json::parse(request.body, nullptr, false);
-            if (body.is_discarded() || !body.is_object() || body.value("confirm", false) != true)
+            if (body.is_discarded() || !body.is_object() || !body.contains("confirm") ||
+                !body["confirm"].is_boolean() || !body["confirm"].get<bool>())
                 return respond_json(response, 400, {{"error", "restore requires JSON body {\"confirm\":true}"}});
             std::lock_guard<std::mutex> lock(engine_mutex);
             const auto active = database_path(root, name);
