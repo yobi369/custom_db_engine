@@ -44,7 +44,7 @@ if(CUSTOM_DB_ENGINE_BUILD_SERVER)
   FetchContent_MakeAvailable(httplib)
   add_executable(custom_db_server server/main.cpp)
   target_compile_features(custom_db_server PRIVATE cxx_std_17)
-  target_link_libraries(custom_db_server PRIVATE CustomDBEngine::custom_db_engine httplib::httplib)
+  target_link_libraries(custom_db_server PRIVATE CustomDBEngine::custom_db_engine httplib::httplib nlohmann_json::nlohmann_json)
 endif()
 
 if(CUSTOM_DB_ENGINE_BUILD_BENCHMARKS)
