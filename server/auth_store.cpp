@@ -4,6 +4,9 @@
 
 #include <algorithm>
 #include <fstream>
+#ifndef _WIN32
+#include <fcntl.h>
+#endif
 #include <limits>
 #include <regex>
 #include <stdexcept>
@@ -123,8 +126,20 @@ UserRecord AuthStore::bootstrap_admin(const std::string& username, const std::st
     if (!valid_username(username)) throw std::invalid_argument("username must be 3-64 safe characters");
     auto verifier = hash_password(password);
     std::lock_guard<std::mutex> lock(mutex_);
-    if (std::filesystem::exists(file_))
-        throw std::runtime_error("auth store already exists; refusing to replace administrator");
+    const auto parent = file_.parent_path().empty() ? std::filesystem::path(".") : file_.parent_path();
+    std::filesystem::create_directories(parent);
+#ifdef _WIN32
+    HANDLE reservation = CreateFileW(file_.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW,
+                                     FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (reservation == INVALID_HANDLE_VALUE)
+        throw std::runtime_error("auth store already exists or cannot be reserved; refusing administrator bootstrap");
+    CloseHandle(reservation);
+#else
+    const int reservation = ::open(file_.c_str(), O_WRONLY | O_CREAT | O_EXCL, S_IRUSR | S_IWUSR);
+    if (reservation < 0)
+        throw std::runtime_error("auth store already exists or cannot be reserved; refusing administrator bootstrap");
+    ::close(reservation);
+#endif
     users_.clear();
     tokens_.clear();
     UserRecord admin{generate_bearer_token().substr(0, 32), username, verifier, "admin", true, {}};
@@ -134,6 +149,8 @@ UserRecord AuthStore::bootstrap_admin(const std::string& username, const std::st
         loaded_ = true;
     } catch (...) {
         users_.clear();
+        std::error_code cleanup_error;
+        std::filesystem::remove(file_, cleanup_error);
         throw;
     }
     return admin;
