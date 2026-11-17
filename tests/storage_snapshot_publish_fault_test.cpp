@@ -40,7 +40,12 @@ int main() {
     std::string previous_snapshot;
     {
         StorageEngine db(path);
-        for (int i = 0; i < 63; ++i)
+        // Establish a known-good published snapshot first.
+        for (int i = 0; i < 64; ++i)
+            CHECK(db.write_data("key-" + std::to_string(i), "value-" + std::to_string(i)));
+
+        // Accumulate another checkpoint interval while preserving that snapshot.
+        for (int i = 64; i < 127; ++i)
             CHECK(db.write_data("key-" + std::to_string(i), "value-" + std::to_string(i)));
 
         previous_snapshot = read_file(path);
@@ -49,12 +54,12 @@ int main() {
         // Fail before atomic replacement. The write itself has already been
         // durably committed to the WAL and must remain recoverable.
         set_publish_failure(true);
-        CHECK(db.write_data("key-63", "value-63"));
+        CHECK(db.write_data("key-127", "value-127"));
         set_publish_failure(false);
 
         CHECK(read_file(path) == previous_snapshot);
         CHECK(!std::filesystem::exists(path + ".tmp"));
-        CHECK(db.read_data("key-63") == "value-63");
+        CHECK(db.read_data("key-127") == "value-127");
         CHECK(db.get_last_error().empty());
     }
 
@@ -64,7 +69,7 @@ int main() {
     {
         StorageEngine recovered(path);
         CHECK(recovered.get_last_error().empty());
-        for (int i = 0; i < 64; ++i) {
+        for (int i = 0; i < 128; ++i) {
             CHECK(recovered.read_data("key-" + std::to_string(i)) ==
                   "value-" + std::to_string(i));
             CHECK(recovered.get_last_error().empty());
@@ -77,7 +82,7 @@ int main() {
         StorageEngine reopened(path);
         CHECK(reopened.get_last_error().empty());
         CHECK(reopened.read_data("key-0") == "value-0");
-        CHECK(reopened.read_data("key-63") == "value-63");
+        CHECK(reopened.read_data("key-127") == "value-127");
         CHECK(reopened.read_data("after-publication-failure") == "recovered");
         CHECK(reopened.check_integrity());
     }
