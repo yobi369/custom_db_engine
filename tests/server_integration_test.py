@@ -89,6 +89,28 @@ def main():
                     {"operations": [{"type": "put", "key": "rolled-back", "value": "no"},
                                     {"type": "not_supported"}]}, expected=400)
             request(base, "/v1/databases/integration/kv/rolled-back", expected=404)
+
+            request(base, "/v1/databases/integration/integrity", key="wrong", expected=401)
+            _, integrity = request(base, "/v1/databases/integration/integrity")
+            assert integrity["status"] == "ok"
+            request(base, "/v1/databases/integration/backups", "POST",
+                    {"name": "before-restore"}, expected=201)
+            _, backups = request(base, "/v1/databases/integration/backups")
+            assert any(item["name"] == "before-restore" for item in backups["backups"])
+            request(base, "/v1/databases/integration/kv/atomic", "PUT",
+                    {"value": "changed-after-backup"}, expected=200)
+            request(base, "/v1/databases/integration/backups/before-restore/restore",
+                    "POST", {}, expected=400)
+            request(base, "/v1/databases/integration/backups/before-restore/restore",
+                    "POST", {"confirm": True}, expected=200)
+            _, restored = request(base, "/v1/databases/integration/kv/atomic")
+            assert restored["value"] == "committed"
+            _, integrity = request(base, "/v1/databases/integration/integrity")
+            assert integrity["status"] == "ok"
+            request(base, "/v1/databases/integration/backups", "POST",
+                    {"name": "../escape"}, expected=400)
+            request(base, "/v1/databases/integration/backups", "POST",
+                    {"name": "before-restore"}, expected=409)
             print("CustomDB HTTP integration tests passed")
         finally:
             process.terminate()
