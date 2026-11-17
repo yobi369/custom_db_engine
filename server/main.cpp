@@ -476,7 +476,7 @@ int main(int argc, char* argv[]) {
     });
 
     server.Put(R"(/v1/auth/users/([A-Za-z0-9_.@-]{3,64})/grants)",
-        [&auth, token_auth_enabled](const httplib::Request& request, httplib::Response& response) {
+        [&auth, &audit, token_auth_enabled](const httplib::Request& request, httplib::Response& response) {
             if (!token_auth_enabled) return respond_json(response, 503, {{"error", "authentication is not initialized"}});
             const auto body = json::parse(request.body, nullptr, false);
             if (body.is_discarded() || !body.is_object() || !body.contains("grants") ||
@@ -492,6 +492,8 @@ int main(int argc, char* argv[]) {
             try {
                 if (!auth.set_user_grants(request.matches[1].str(), grants))
                     return respond_json(response, 404, {{"error", "user not found"}});
+                record_audit(audit, "user_grants_updated", audit_actor(auth, request),
+                             request.matches[1].str(), "success", request.remote_addr);
                 respond_json(response, 200, {{"status", "grants_updated"}});
             } catch (const std::invalid_argument& error) {
                 respond_json(response, 400, {{"error", error.what()}});
@@ -501,7 +503,7 @@ int main(int argc, char* argv[]) {
         });
 
     server.Put(R"(/v1/auth/users/([A-Za-z0-9_.@-]{3,64})/enabled)",
-        [&auth, token_auth_enabled](const httplib::Request& request, httplib::Response& response) {
+        [&auth, &audit, token_auth_enabled](const httplib::Request& request, httplib::Response& response) {
             if (!token_auth_enabled) return respond_json(response, 503, {{"error", "authentication is not initialized"}});
             const auto body = json::parse(request.body, nullptr, false);
             if (body.is_discarded() || !body.is_object() || !body.contains("enabled") ||
@@ -510,6 +512,9 @@ int main(int argc, char* argv[]) {
             try {
                 if (!auth.set_user_enabled(request.matches[1].str(), body["enabled"].get<bool>()))
                     return respond_json(response, 404, {{"error", "user not found"}});
+                record_audit(audit, "user_status_updated", audit_actor(auth, request),
+                             request.matches[1].str(), body["enabled"].get<bool>() ? "enabled" : "disabled",
+                             request.remote_addr);
                 respond_json(response, 200, {{"status", "updated"}});
             } catch (const customdb::security::AuthPolicyError& error) {
                 respond_json(response, 409, {{"error", error.what()}});
@@ -519,7 +524,7 @@ int main(int argc, char* argv[]) {
         });
 
     server.Put(R"(/v1/auth/users/([A-Za-z0-9_.@-]{3,64})/password)",
-        [&auth, token_auth_enabled](const httplib::Request& request, httplib::Response& response) {
+        [&auth, &audit, token_auth_enabled](const httplib::Request& request, httplib::Response& response) {
             if (!token_auth_enabled) return respond_json(response, 503, {{"error", "authentication is not initialized"}});
             const auto body = json::parse(request.body, nullptr, false);
             if (body.is_discarded() || !body.is_object() || !body.contains("password") ||
@@ -528,6 +533,8 @@ int main(int argc, char* argv[]) {
             try {
                 if (!auth.set_user_password(request.matches[1].str(), body["password"].get<std::string>()))
                     return respond_json(response, 404, {{"error", "user not found"}});
+                record_audit(audit, "admin_password_reset", audit_actor(auth, request),
+                             request.matches[1].str(), "success", request.remote_addr);
                 respond_json(response, 200, {{"status", "password_updated"}, {"sessions_revoked", true}});
             } catch (const std::invalid_argument& error) {
                 respond_json(response, 400, {{"error", error.what()}});
@@ -536,7 +543,7 @@ int main(int argc, char* argv[]) {
             }
         });
 
-    server.Put("/v1/auth/password", [&auth](const httplib::Request& request, httplib::Response& response) {
+    server.Put("/v1/auth/password", [&auth, &audit](const httplib::Request& request, httplib::Response& response) {
         const auto body = json::parse(request.body, nullptr, false);
         if (body.is_discarded() || !body.is_object() ||
             !body.contains("current_password") || !body["current_password"].is_string() ||
@@ -551,8 +558,13 @@ int main(int argc, char* argv[]) {
                 return respond_json(response, 401, {{"error", "authenticated session required"}});
             if (!auth.change_user_password(principal->username,
                     body["current_password"].get<std::string>(),
-                    body["new_password"].get<std::string>()))
+                    body["new_password"].get<std::string>())) {
+                record_audit(audit, "password_change_failed", principal->username, principal->username,
+                             "current_password_mismatch", request.remote_addr);
                 return respond_json(response, 401, {{"error", "current password is incorrect"}});
+            }
+            record_audit(audit, "password_changed", principal->username, principal->username,
+                         "success", request.remote_addr);
             respond_json(response, 200, {{"status", "password_changed"}, {"sessions_revoked", true}});
         } catch (const customdb::security::AuthPolicyError& error) {
             respond_json(response, 409, {{"error", error.what()}});
@@ -563,13 +575,16 @@ int main(int argc, char* argv[]) {
         }
     });
 
-    server.Post("/v1/auth/logout", [&auth](const httplib::Request& request, httplib::Response& response) {
+    server.Post("/v1/auth/logout", [&auth, &audit](const httplib::Request& request, httplib::Response& response) {
         const auto authorization = request.get_header_value("Authorization");
         if (authorization.size() <= 7)
             return respond_json(response, 401, {{"error", "session is no longer active"}});
         try {
-            if (!auth.revoke_token_value(authorization.substr(7)))
+            const auto principal = auth.authenticate_token(authorization.substr(7));
+            if (!principal || !auth.revoke_token_value(authorization.substr(7)))
                 return respond_json(response, 401, {{"error", "session is no longer active"}});
+            record_audit(audit, "logout", principal->username, principal->username,
+                         "success", request.remote_addr);
             respond_json(response, 200, {{"status", "logged_out"}});
         } catch (const std::exception&) {
             respond_json(response, 503, {{"error", "authentication store unavailable"}});
@@ -577,11 +592,13 @@ int main(int argc, char* argv[]) {
     });
 
     server.Post(R"(/v1/auth/tokens/([a-f0-9]{32})/revoke)",
-        [&auth, token_auth_enabled](const httplib::Request& request, httplib::Response& response) {
+        [&auth, &audit, token_auth_enabled](const httplib::Request& request, httplib::Response& response) {
             if (!token_auth_enabled) return respond_json(response, 503, {{"error", "authentication is not initialized"}});
             try {
                 if (!auth.revoke_token(request.matches[1].str()))
                     return respond_json(response, 404, {{"error", "token not found"}});
+                record_audit(audit, "token_revoked", audit_actor(auth, request),
+                             request.matches[1].str(), "success", request.remote_addr);
                 respond_json(response, 200, {{"status", "revoked"}});
             } catch (const std::exception& error) {
                 respond_json(response, 500, {{"error", error.what()}});
