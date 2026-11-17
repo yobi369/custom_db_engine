@@ -892,6 +892,20 @@ private:
             if (ec) return fail("Cannot inspect write-ahead log: " + ec.message());
             std::FILE* wal = std::fopen(wal_path().c_str(), "ab");
             if (!wal) return fail("Cannot open write-ahead log for appending");
+#ifdef CUSTOM_DB_ENGINE_TEST_FAULTS
+            // Leave a deliberately incomplete record to exercise torn-tail recovery.
+            const char* partial_failure = std::getenv("CUSTOMDB_TEST_FAIL_WAL_APPEND_PARTIAL");
+            if (partial_failure && std::string(partial_failure) == "1") {
+                const std::size_t partial_size = std::max<std::size_t>(1, record.size() / 2);
+                const bool partial_written = std::fwrite(record.data(), 1, partial_size, wal) == partial_size;
+                const bool partial_flushed = partial_written && durable_flush(wal);
+                const bool partial_closed = std::fclose(wal) == 0;
+                load_failed_ = true;
+                if (!partial_written || !partial_flushed || !partial_closed)
+                    return fail("Injected partial WAL append failed while creating the test condition");
+                return fail("Injected partial WAL append; handle disabled until reopen");
+            }
+#endif
             const bool written = std::fwrite(record.data(), 1, record.size(), wal) == record.size();
             const bool flushed = written && durable_flush(wal);
             const bool closed = std::fclose(wal) == 0;
