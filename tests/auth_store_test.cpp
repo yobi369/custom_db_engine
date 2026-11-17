@@ -18,7 +18,7 @@ int main() {
     assert(store.initialized());
 
     bool refused_non_admin = false;
-    try { (void)store.create_user("firstuser", "password", "read_only"); }
+    try { (void)store.create_user("firstuser", "long enough password", "read_only"); }
     catch (const std::runtime_error&) { refused_non_admin = true; }
     assert(refused_non_admin);
 
