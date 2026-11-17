@@ -130,6 +130,14 @@ def main():
                     token=admin["access_token"], expected=201)
             created = login(base, "newuser01", "a sufficiently long password")
             assert created["user"]["role"] == "read_only"
+            request(base, "/v1/auth/users/newuser01/password", "PUT",
+                    {"password": "replacement account password"}, token=admin["access_token"], expected=200)
+            request(base, "/v1/databases/alpha/kv/one", token=created["access_token"], expected=401)
+            login(base, "newuser01", "a sufficiently long password", expected=401)
+            replacement = login(base, "newuser01", "replacement account password")
+            request(base, "/v1/databases/alpha/kv/one", token=replacement["access_token"], expected=200)
+            request(base, "/v1/auth/logout", "POST", token=replacement["access_token"], expected=200)
+            request(base, "/v1/databases/alpha/kv/one", token=replacement["access_token"], expected=401)
             request(base, "/v1/auth/users/writer01/enabled", "PUT", {"enabled": False},
                     token=admin["access_token"], expected=200)
             request(base, "/v1/databases/alpha/kv/one", token=writer["access_token"], expected=401)
