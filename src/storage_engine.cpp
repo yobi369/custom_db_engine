@@ -538,6 +538,84 @@ public:
         last_error_.clear();
         return result;
     }
+    bool update_documents(const std::string& collection,
+                          const std::map<std::string, std::string>& filters,
+                          const std::string& json_data) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (!valid_name(collection)) return fail("Collection name must not be empty");
+        if (filters.empty()) return fail("Document update requires at least one equality filter");
+        if (load_failed_) return fail("Database failed to load; refusing to overwrite the existing file");
+        json replacement;
+        try { replacement = json::parse(json_data); }
+        catch (const std::exception& e) { return fail(std::string("Invalid JSON document: ") + e.what()); }
+        if (!replacement.is_object()) return fail("Documents must be JSON objects");
+        json& view = in_transaction_ ? transaction_state_ : state_;
+        const auto schema_it = view["schemas"].find(collection);
+        if (schema_it != view["schemas"].end()) {
+            std::string validation_error;
+            if (!validate_document_against_schema(replacement, *schema_it, validation_error))
+                return fail("Schema validation failed: " + validation_error);
+        }
+        auto collection_it = view["documents"].find(collection);
+        if (collection_it == view["documents"].end()) return fail("No documents matched the supplied filters");
+        std::size_t changed = 0;
+        for (auto& document : *collection_it) {
+            bool matches = true;
+            for (const auto& filter : filters) {
+                const auto field = document.find(filter.first);
+                if (field == document.end()) { matches = false; break; }
+                const std::string actual = field->is_string() ? field->get<std::string>() : field->dump();
+                if (actual != filter.second) { matches = false; break; }
+            }
+            if (matches) { document = replacement; ++changed; }
+        }
+        if (changed == 0) return fail("No documents matched the supplied filters");
+        if (in_transaction_) {
+            index_cache_.erase(collection);
+            last_error_.clear();
+            return true;
+        }
+        json next = state_;
+        if (!persist_locked(next)) return false;
+        state_ = std::move(next);
+        index_cache_.erase(collection);
+        last_error_.clear();
+        return true;
+    }
+    bool delete_documents(const std::string& collection,
+                          const std::map<std::string, std::string>& filters) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (!valid_name(collection)) return fail("Collection name must not be empty");
+        if (filters.empty()) return fail("Document deletion requires at least one equality filter");
+        if (load_failed_) return fail("Database failed to load; refusing to overwrite the existing file");
+        json& view = in_transaction_ ? transaction_state_ : state_;
+        auto collection_it = view["documents"].find(collection);
+        if (collection_it == view["documents"].end()) return fail("No documents matched the supplied filters");
+        auto& documents = *collection_it;
+        const auto original_size = documents.size();
+        documents.erase(std::remove_if(documents.begin(), documents.end(), [&](const json& document) {
+            for (const auto& filter : filters) {
+                const auto field = document.find(filter.first);
+                if (field == document.end()) return false;
+                const std::string actual = field->is_string() ? field->get<std::string>() : field->dump();
+                if (actual != filter.second) return false;
+            }
+            return true;
+        }), documents.end());
+        if (documents.size() == original_size) return fail("No documents matched the supplied filters");
+        if (in_transaction_) {
+            index_cache_.erase(collection);
+            last_error_.clear();
+            return true;
+        }
+        json next = state_;
+        if (documents.empty()) next["documents"].erase(collection);
+        if (!persist_locked(next)) return false;
+        state_ = std::move(next);
+        index_cache_.erase(collection);
+        last_error_.clear();
+        return true;
+    }
     bool create_schema(const std::string& definition) { return set_schema(definition, true); }
     bool update_schema(const std::string& definition) { return set_schema(definition, false); }
     bool create_index(const std::string& field_name) {
@@ -980,6 +1058,8 @@ bool StorageEngine::write_data(const std::string& k, const std::string& v) { ret
 std::string StorageEngine::read_data(const std::string& k) { return pimpl->read_data(k); }
 bool StorageEngine::delete_data(const std::string& k) { return pimpl->delete_data(k); }
 bool StorageEngine::write_document(const std::string& c, const std::string& d) { return pimpl->write_document(c, d); }
+bool StorageEngine::update_documents(const std::string& c, const std::map<std::string, std::string>& f, const std::string& d) { return pimpl->update_documents(c, f, d); }
+bool StorageEngine::delete_documents(const std::string& c, const std::map<std::string, std::string>& f) { return pimpl->delete_documents(c, f); }
 std::vector<std::string> StorageEngine::query_documents(const std::string& c, const std::map<std::string, std::string>& f) { return pimpl->query_documents(c, f); }
 bool StorageEngine::create_schema(const std::string& s) { return pimpl->create_schema(s); }
 bool StorageEngine::update_schema(const std::string& s) { return pimpl->update_schema(s); }
