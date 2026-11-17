@@ -36,6 +36,15 @@ int main(int argc, char** argv) {
         StorageEngine competing(argv[2]);
         return competing.get_last_error().find("already open") != std::string::npos ? 0 : 1;
     }
+    if (argc == 3 && std::string(argv[1]) == "--write-and-exit") {
+        StorageEngine child(argv[2]);
+        for (int i = 0; i < 70; ++i) {
+            if (!child.write_data("crash-key-" + std::to_string(i),
+                                  "crash-value-" + std::to_string(i))) return 2;
+        }
+        // Simulate abrupt process termination without running engine destructors.
+        std::_Exit(0);
+    }
     const std::string path = "storage_engine_test_db.json";
     const std::string backup = "storage_engine_test_backup.json";
     std::error_code ec;
@@ -163,6 +172,30 @@ int main(int argc, char** argv) {
     std::filesystem::remove(path + ".lock", ec);
     std::filesystem::remove(backup, ec);
     std::filesystem::remove(backup + ".tmp", ec);
+    const std::string crash_path = "storage_engine_crash_recovery.json";
+    for (const auto& suffix : {"", ".wal", ".tmp", ".lock"}) std::filesystem::remove(crash_path + suffix, ec);
+#ifdef _WIN32
+    const int crash_status = _spawnl(_P_WAIT, argv[0], argv[0],
+                                     "--write-and-exit", crash_path.c_str(),
+                                     static_cast<const char*>(nullptr));
+#else
+    const std::string crash_command = "\"" + std::string(argv[0]) +
+        "\" --write-and-exit \"" + crash_path + "\"";
+    const int crash_status = std::system(crash_command.c_str());
+#endif
+    CHECK(crash_status == 0);
+    {
+        StorageEngine recovered_after_crash(crash_path);
+        CHECK(recovered_after_crash.get_last_error().empty());
+        for (int i = 0; i < 70; ++i) {
+            CHECK(recovered_after_crash.read_data("crash-key-" + std::to_string(i)) ==
+                  "crash-value-" + std::to_string(i));
+            CHECK(recovered_after_crash.get_last_error().empty());
+        }
+        CHECK(recovered_after_crash.check_integrity());
+    }
+    for (const auto& suffix : {"", ".wal", ".tmp", ".lock"}) std::filesystem::remove(crash_path + suffix, ec);
+
     const std::string corrupt_path = "storage_engine_corrupt_test.json";
     std::filesystem::remove(corrupt_path, ec);
     std::filesystem::remove(corrupt_path + ".wal", ec);
