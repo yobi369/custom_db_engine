@@ -99,14 +99,21 @@ std::string digest_bearer_token(const std::string& token) {
     return to_hex(digest.data(), length);
 }
 
+bool verify_bearer_token_digest(const std::string& candidate_digest_hex,
+                                const std::string& stored_digest_hex) {
+    std::array<unsigned char, 32> candidate{};
+    std::array<unsigned char, 32> expected{};
+    if (!from_hex(candidate_digest_hex, candidate.data(), candidate.size()) ||
+        !from_hex(stored_digest_hex, expected.data(), expected.size())) return false;
+    const bool matches = CRYPTO_memcmp(candidate.data(), expected.data(), candidate.size()) == 0;
+    OPENSSL_cleanse(candidate.data(), candidate.size());
+    OPENSSL_cleanse(expected.data(), expected.size());
+    return matches;
+}
+
 bool verify_bearer_token(const std::string& token, const std::string& stored_digest_hex) {
     if (token.empty()) return false;
-    std::array<unsigned char, 32> expected{};
-    if (!from_hex(stored_digest_hex, expected.data(), expected.size())) return false;
-    const auto actual_hex = digest_bearer_token(token);
-    std::array<unsigned char, 32> actual{};
-    if (!from_hex(actual_hex, actual.data(), actual.size())) return false;
-    return CRYPTO_memcmp(actual.data(), expected.data(), actual.size()) == 0;
+    return verify_bearer_token_digest(digest_bearer_token(token), stored_digest_hex);
 }
 
 } // namespace customdb::security
