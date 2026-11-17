@@ -344,6 +344,27 @@ bool AuthStore::set_user_enabled(const std::string& username, bool enabled) {
     return true;
 }
 
+bool AuthStore::set_user_password(const std::string& username, const std::string& password) {
+    const auto verifier = hash_password(password);
+    std::lock_guard<std::mutex> lock(mutex_);
+    load_locked();
+    const auto user = std::find_if(users_.begin(), users_.end(),
+        [&](const UserRecord& item) { return item.username == username; });
+    if (user == users_.end()) return false;
+    const auto previous_password = user->password;
+    const auto previous_tokens = tokens_;
+    user->password = verifier;
+    for (auto& token : tokens_)
+        if (token.user_id == user->id) token.revoked = true;
+    try { persist_locked(); }
+    catch (...) {
+        user->password = previous_password;
+        tokens_ = previous_tokens;
+        throw;
+    }
+    return true;
+}
+
 IssuedToken AuthStore::issue_token(const std::string& username, std::chrono::seconds lifetime) {
     if (lifetime <= std::chrono::seconds::zero() || lifetime > std::chrono::hours(24 * 30))
         throw std::invalid_argument("token lifetime must be between 1 second and 30 days");
@@ -390,6 +411,22 @@ bool AuthStore::revoke_token(const std::string& token_id) {
     if (it->revoked) return true;
     it->revoked = true;
     try { persist_locked(); } catch (...) { it->revoked = false; throw; }
+    return true;
+}
+
+bool AuthStore::revoke_token_value(const std::string& token) {
+    if (token.size() != 64) return false;
+    const auto candidate_digest = digest_bearer_token(token);
+    std::lock_guard<std::mutex> lock(mutex_);
+    load_locked();
+    const auto record = std::find_if(tokens_.begin(), tokens_.end(), [&](const TokenRecord& item) {
+        return verify_bearer_token_digest(candidate_digest, item.digest);
+    });
+    if (record == tokens_.end()) return false;
+    if (record->revoked) return true;
+    record->revoked = true;
+    try { persist_locked(); }
+    catch (...) { record->revoked = false; throw; }
     return true;
 }
 
