@@ -35,6 +35,12 @@ int main() {
             CHECK(db.write_data("stable-" + std::to_string(i), "value-" + std::to_string(i)));
 
         CHECK(std::filesystem::exists(path));
+
+        // Keep valid, committed WAL records after the snapshot. Recovery must
+        // replay these records before discarding the incomplete final record.
+        for (int i = 0; i < 5; ++i)
+            CHECK(db.write_data("wal-" + std::to_string(i), "committed-" + std::to_string(i)));
+
         set_partial_append_failure(true);
         CHECK(!db.write_data("must-not-commit", "interrupted"));
         set_partial_append_failure(false);
@@ -55,6 +61,13 @@ int main() {
                   "value-" + std::to_string(i));
             CHECK(recovered.get_last_error().empty());
         }
+        for (int i = 0; i < 5; ++i) {
+            CHECK(recovered.read_data("wal-" + std::to_string(i)) ==
+                  "committed-" + std::to_string(i));
+            CHECK(recovered.get_last_error().empty());
+        }
+        CHECK(recovered.read_data("must-not-commit").empty());
+        CHECK(!recovered.get_last_error().empty());
         CHECK(recovered.check_integrity());
         CHECK(recovered.write_data("after-torn-tail", "recovered"));
     }
@@ -63,6 +76,7 @@ int main() {
         StorageEngine reopened(path);
         CHECK(reopened.get_last_error().empty());
         CHECK(reopened.read_data("stable-0") == "value-0");
+        CHECK(reopened.read_data("wal-4") == "committed-4");
         CHECK(reopened.read_data("after-torn-tail") == "recovered");
         CHECK(reopened.check_integrity());
     }
