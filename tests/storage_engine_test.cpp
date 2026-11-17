@@ -145,6 +145,40 @@ int main(int argc, char** argv) {
         CHECK(reopened.query_documents("users", {{"name", "Bob"}}).size() == 1);
         CHECK(reopened.write_data("after_torn_tail", "recovery-truncated-the-tail"));
     }
+    // A torn tail must not discard earlier complete WAL commits. Recovery must
+    // replay the complete prefix, truncate only the incomplete final record, and
+    // allow a later append to remain independently recoverable.
+    const std::string torn_after_commit_path = "storage_engine_torn_after_commit.json";
+    for (const auto& suffix : {"", ".wal", ".tmp", ".lock"})
+        std::filesystem::remove(torn_after_commit_path + suffix, ec);
+    {
+        StorageEngine db(torn_after_commit_path);
+        CHECK(db.write_data("committed_one", "one"));
+        CHECK(db.write_data("committed_two", "two"));
+    }
+    {
+        std::ofstream wal(torn_after_commit_path + ".wal", std::ios::binary | std::ios::app);
+        wal << "3 deadbeef {\"record_version\":2";
+    }
+    {
+        StorageEngine recovered(torn_after_commit_path);
+        CHECK(recovered.get_last_error().empty());
+        CHECK(recovered.read_data("committed_one") == "one");
+        CHECK(recovered.read_data("committed_two") == "two");
+        CHECK(recovered.write_data("after_recovery", "three"));
+        CHECK(recovered.check_integrity());
+    }
+    {
+        StorageEngine reopened(torn_after_commit_path);
+        CHECK(reopened.get_last_error().empty());
+        CHECK(reopened.read_data("committed_one") == "one");
+        CHECK(reopened.read_data("committed_two") == "two");
+        CHECK(reopened.read_data("after_recovery") == "three");
+        CHECK(reopened.check_integrity());
+    }
+    for (const auto& suffix : {"", ".wal", ".tmp", ".lock"})
+        std::filesystem::remove(torn_after_commit_path + suffix, ec);
+
     {
         StorageEngine db(path);
         CHECK(db.begin_transaction());
