@@ -52,12 +52,12 @@ Argon2id remains the preferred future KDF if a maintained, portable implementati
 
 ## Implementation gates
 
-1. Add and verify the OpenSSL 3.x server-only dependency across the complete CI matrix.
-2. Implement and unit-test crypto wrappers, auth-store parsing, atomic persistence, file permissions, and one-time administrator bootstrap.
-3. Implement password login, opaque token issuance, expiry, revocation, and disabled-user handling.
-4. Implemented on the development branch: centralized authentication and authorization runs before route handlers; legacy shared-key headers are not accepted once identity mode is active.
-5. Implemented on the development branch: route-by-role and cross-database tests cover unknown routes, malformed/invalid tokens, API-key rejection, expired/revoked tokens, disabled users, restore restrictions, and administrator lockout prevention.
-6. Operational documentation is updated. Independent security review, fault/load testing, and deployment hardening remain required before use beyond trusted local development.
+1. Completed on the development branch: OpenSSL 3.x server-only dependency is configured and exercised by the supported CI matrix.
+2. Completed on the development branch: crypto wrappers, bounded auth-store parsing, atomic replacement, POSIX file permissions, and one-time administrator bootstrap are implemented and unit-tested.
+3. Completed on the development branch: password login, opaque token issuance, expiry, revocation, disabled-user handling, administrator password reset, user logout, and stale-credential race protection are implemented and tested.
+4. Completed on the development branch: centralized authentication and authorization runs before route handlers; legacy shared-key headers are not accepted once identity mode is active.
+5. Completed on the development branch: route-by-role and cross-database tests cover unknown routes, malformed/invalid tokens, API-key rejection, expired/revoked tokens, disabled users, restore restrictions, and administrator lockout prevention.
+6. Operational documentation is updated. Independent security review, inter-process auth-store locking, fault/load testing, and deployment hardening remain required before use beyond trusted local development.
 
 ## Current implementation progress
 
