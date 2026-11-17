@@ -21,5 +21,7 @@ std::string generate_bearer_token();
 // Returns the SHA-256 hex digest of a bearer token. Persist this digest, not the token.
 std::string digest_bearer_token(const std::string& token);
 bool verify_bearer_token(const std::string& token, const std::string& stored_digest_hex);
+bool verify_bearer_token_digest(const std::string& candidate_digest_hex,
+                                const std::string& stored_digest_hex);
 
 } // namespace customdb::security
