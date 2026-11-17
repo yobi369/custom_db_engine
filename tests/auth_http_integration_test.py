@@ -49,6 +49,13 @@ def main():
         env = os.environ.copy()
         env.update({"CUSTOMDB_HOST": "127.0.0.1", "CUSTOMDB_PORT": str(port),
                     "CUSTOMDB_DATA_DIR": data_dir})
+        refused_env = env.copy()
+        refused_env["CUSTOMDB_HOST"] = "0.0.0.0"
+        refused_env.pop("CUSTOMDB_ALLOW_NON_LOOPBACK", None)
+        refused = subprocess.run([server_exe], env=refused_env, stdout=subprocess.DEVNULL,
+                                 stderr=subprocess.PIPE, timeout=5)
+        assert refused.returncode == 2
+        assert b"CUSTOMDB_ALLOW_NON_LOOPBACK=1" in refused.stderr
         process = subprocess.Popen([server_exe], env=env, stdout=subprocess.DEVNULL,
                                    stderr=subprocess.PIPE)
         base = f"http://127.0.0.1:{port}"
