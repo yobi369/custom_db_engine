@@ -135,13 +135,6 @@ def main():
                     token=admin["access_token"], expected=200)
             request(base, "/v1/databases/alpha/kv/one", token=reader["access_token"], expected=401)
 
-            # Failed password attempts are throttled per remote address.
-            for _ in range(5):
-                login(base, "rootadmin", "wrong password", expected=401)
-            _, throttled = request(base, "/v1/auth/login", "POST",
-                {"username": "rootadmin", "password": "wrong password"}, expected=429)
-            assert "too many" in throttled["error"]
-
             request(base, "/v1/auth/users", "POST",
                     {"username": "secondadmin", "password": "second administrator password",
                      "role": "admin", "grants": []},
@@ -153,6 +146,13 @@ def main():
             request(base, "/v1/auth/users/secondadmin/enabled", "PUT", {"enabled": False},
                     token=second_admin["access_token"], expected=409)
             request(base, "/v1/auth/users", token=second_admin["access_token"], expected=200)
+
+            # Failed password attempts are throttled per remote address.
+            for _ in range(5):
+                login(base, "secondadmin", "wrong password", expected=401)
+            _, throttled = request(base, "/v1/auth/login", "POST",
+                {"username": "secondadmin", "password": "wrong password"}, expected=429)
+            assert "too many" in throttled["error"]
             print("CustomDB bearer authentication and authorization matrix passed")
         finally:
             process.terminate()
