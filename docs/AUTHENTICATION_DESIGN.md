@@ -59,7 +59,7 @@ Authorization is database-scoped. A grant binds one user to one database and one
 3. **Central middleware:** implemented pre-routing bearer authentication and centralized role/database authorization. Legacy API-key fallback is disabled in identity mode.
 4. **User and grant administration:** implemented administrator create/list/disable, password reset, grant replacement, and token revocation.
 5. **Authorization matrix tests:** implemented HTTP tests for unauthenticated, read-only, read-write, admin, revoked, disabled, expired, malformed-token, cross-database, restore, lockout, and process-lock behavior.
-6. **Operational hardening:** login throttling and deployment guidance are implemented. Structured audit events, auth-store crash recovery/fault testing, independent security review, and structured audit events and auth-store crash recovery remain outstanding.
+6. **Operational hardening:** login throttling and deployment guidance are implemented. Structured audit events, auth-store crash recovery/fault testing, independent security review, and tamper-evident or remote audit delivery and auth-store crash recovery remain outstanding. Local bounded JSONL security-event logging is implemented, but is best-effort and not tamper-evident.
 
 ## Explicit non-goals for the first implementation
 
