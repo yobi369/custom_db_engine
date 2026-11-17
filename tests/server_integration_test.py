@@ -1,4 +1,5 @@
 import json
+from concurrent.futures import ThreadPoolExecutor
 import os
 import socket
 import subprocess
@@ -126,6 +127,16 @@ def main():
                     {"name": "../escape"}, expected=400)
             request(base, "/v1/databases/integration/backups", "POST",
                     {"name": "before-restore"}, expected=409)
+
+            # Concurrent HTTP clients must remain correct under server serialization.
+            def write_concurrent(index):
+                request(base, f"/v1/databases/integration/kv/concurrent-{index}",
+                        "PUT", {"value": f"value-{index}"}, expected=200)
+            with ThreadPoolExecutor(max_workers=8) as pool:
+                list(pool.map(write_concurrent, range(32)))
+            for index in range(32):
+                _, value = request(base, f"/v1/databases/integration/kv/concurrent-{index}")
+                assert value["value"] == f"value-{index}"
 
             # Restart against the same data directory and verify durable state.
             process.terminate()
