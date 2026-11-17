@@ -296,7 +296,8 @@ int main(int argc, char* argv[]) {
             response.set_header("Connection", "close");
             return httplib::Server::HandlerResponse::Handled;
         }
-        if (principal->role == "admin" || request.path == "/v1/auth/logout")
+        if (principal->role == "admin" || request.path == "/v1/auth/logout" ||
+            request.path == "/v1/auth/password")
             return httplib::Server::HandlerResponse::Unhandled;
 
         if (request.path == "/v1/databases" || request.path == "/v1/auth/users" ||
@@ -481,6 +482,33 @@ int main(int argc, char* argv[]) {
                 respond_json(response, 500, {{"error", error.what()}});
             }
         });
+
+    server.Put("/v1/auth/password", [&auth](const httplib::Request& request, httplib::Response& response) {
+        const auto body = json::parse(request.body, nullptr, false);
+        if (body.is_discarded() || !body.is_object() ||
+            !body.contains("current_password") || !body["current_password"].is_string() ||
+            !body.contains("new_password") || !body["new_password"].is_string())
+            return respond_json(response, 400, {{"error", "expected current_password and new_password strings"}});
+        const auto authorization = request.get_header_value("Authorization");
+        if (authorization.size() <= 7)
+            return respond_json(response, 401, {{"error", "authenticated session required"}});
+        try {
+            const auto principal = auth.authenticate_token(authorization.substr(7));
+            if (!principal)
+                return respond_json(response, 401, {{"error", "authenticated session required"}});
+            if (!auth.change_user_password(principal->username,
+                    body["current_password"].get<std::string>(),
+                    body["new_password"].get<std::string>()))
+                return respond_json(response, 401, {{"error", "current password is incorrect"}});
+            respond_json(response, 200, {{"status", "password_changed"}, {"sessions_revoked", true}});
+        } catch (const customdb::security::AuthPolicyError& error) {
+            respond_json(response, 409, {{"error", error.what()}});
+        } catch (const std::invalid_argument& error) {
+            respond_json(response, 400, {{"error", error.what()}});
+        } catch (const std::exception&) {
+            respond_json(response, 503, {{"error", "authentication store unavailable"}});
+        }
+    });
 
     server.Post("/v1/auth/logout", [&auth](const httplib::Request& request, httplib::Response& response) {
         const auto authorization = request.get_header_value("Authorization");
