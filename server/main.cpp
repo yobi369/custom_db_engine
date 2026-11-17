@@ -169,17 +169,20 @@ int main(int argc, char* argv[]) {
         if (authorization.rfind(prefix, 0) != 0 || authorization.size() <= 7) {
             respond_json(response, 401, {{"error", "bearer token required"}});
             response.set_header("WWW-Authenticate", "Bearer");
+            response.set_header("Connection", "close");
             return httplib::Server::HandlerResponse::Handled;
         }
         std::optional<customdb::security::UserRecord> principal;
         try { principal = auth.authenticate_token(authorization.substr(7)); }
         catch (const std::exception&) {
             respond_json(response, 503, {{"error", "authentication store unavailable"}});
+            response.set_header("Connection", "close");
             return httplib::Server::HandlerResponse::Handled;
         }
         if (!principal) {
             respond_json(response, 401, {{"error", "invalid or expired bearer token"}});
             response.set_header("WWW-Authenticate", "Bearer error=\"invalid_token\"");
+            response.set_header("Connection", "close");
             return httplib::Server::HandlerResponse::Handled;
         }
         if (principal->role == "admin")
@@ -188,6 +191,7 @@ int main(int argc, char* argv[]) {
         if (request.path == "/v1/databases" || request.path == "/v1/auth/users" ||
             request.path.rfind("/v1/auth/tokens/", 0) == 0) {
             respond_json(response, 403, {{"error", "administrator permission required"}});
+            response.set_header("Connection", "close");
             return httplib::Server::HandlerResponse::Handled;
         }
 
@@ -198,6 +202,7 @@ int main(int argc, char* argv[]) {
             const bool write_request = request.method != "GET" && request.method != "HEAD";
             if (write_request && principal->role == "read_only") {
                 respond_json(response, 403, {{"error", "read-only account cannot modify data"}});
+                response.set_header("Connection", "close");
                 return httplib::Server::HandlerResponse::Handled;
             }
             const auto grant = std::find_if(principal->grants.begin(), principal->grants.end(),
@@ -206,10 +211,12 @@ int main(int argc, char* argv[]) {
                 (!write_request || grant->permission == "write");
             if (!permitted) {
                 respond_json(response, 403, {{"error", "database permission denied"}});
+                response.set_header("Connection", "close");
                 return httplib::Server::HandlerResponse::Handled;
             }
         } else if (request.path.rfind("/v1/", 0) == 0) {
             respond_json(response, 403, {{"error", "administrator permission required"}});
+            response.set_header("Connection", "close");
             return httplib::Server::HandlerResponse::Handled;
         }
         return httplib::Server::HandlerResponse::Unhandled;
