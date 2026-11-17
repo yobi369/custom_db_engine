@@ -116,6 +116,26 @@ void AuthStore::initialize() {
     loaded_ = true;
 }
 
+UserRecord AuthStore::bootstrap_admin(const std::string& username, const std::string& password) {
+    if (!valid_username(username)) throw std::invalid_argument("username must be 3-64 safe characters");
+    auto verifier = hash_password(password);
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (std::filesystem::exists(file_))
+        throw std::runtime_error("auth store already exists; refusing to replace administrator");
+    users_.clear();
+    tokens_.clear();
+    UserRecord admin{generate_bearer_token().substr(0, 32), username, verifier, "admin", true, {}};
+    users_.push_back(admin);
+    try {
+        persist_locked();
+        loaded_ = true;
+    } catch (...) {
+        users_.clear();
+        throw;
+    }
+    return admin;
+}
+
 bool AuthStore::initialized() const {
     std::lock_guard<std::mutex> lock(mutex_);
     return std::filesystem::is_regular_file(file_);
