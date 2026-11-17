@@ -59,6 +59,8 @@ public:
                                                       const std::string& password) const;
     bool set_user_enabled(const std::string& username, bool enabled);
     bool set_user_password(const std::string& username, const std::string& password);
+    bool change_user_password(const std::string& username, const std::string& current_password,
+                              const std::string& new_password);
 
     IssuedToken issue_token(const std::string& username,
                             std::chrono::seconds lifetime = std::chrono::hours(24),
