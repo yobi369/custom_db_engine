@@ -68,14 +68,19 @@ UserRecord user_from_json(const json& value) {
         !p.contains("salt") || !p["salt"].is_string() ||
         !p.contains("verifier") || !p["verifier"].is_string())
         throw std::runtime_error("invalid password verifier in auth store");
+    const auto iterations = p["iterations"].get<std::uint64_t>();
+    if (iterations < 100000 || iterations > 2000000)
+        throw std::runtime_error("password verifier work factor is out of bounds");
+    static const std::regex hex32("^[a-f0-9]{32}$");
+    static const std::regex hex64("^[a-f0-9]{64}$");
     UserRecord user;
     user.id = value["id"].get<std::string>();
     user.username = value["username"].get<std::string>();
-    user.password = {p["algorithm"].get<std::string>(), p["iterations"].get<unsigned int>(),
+    user.password = {p["algorithm"].get<std::string>(), static_cast<unsigned int>(iterations),
                      p["salt"].get<std::string>(), p["verifier"].get<std::string>()};
     user.role = value["role"].get<std::string>();
     user.enabled = value["enabled"].get<bool>();
-    if (user.id.empty() || !valid_username(user.username) || !valid_role(user.role) ||
+    if (!std::regex_match(user.id, hex32) || !valid_username(user.username) || !valid_role(user.role) ||
         value["grants"].size() > kMaximumGrants)
         throw std::runtime_error("invalid user fields in auth store");
     for (const auto& item : value["grants"]) {
@@ -89,8 +94,8 @@ UserRecord user_from_json(const json& value) {
         user.grants.push_back(std::move(grant));
     }
     if (user.password.algorithm != "pbkdf2-hmac-sha256" ||
-        user.password.iterations < 100000 || user.password.iterations > 2000000 ||
-        user.password.salt_hex.size() != 32 || user.password.verifier_hex.size() != 64)
+        !std::regex_match(user.password.salt_hex, hex32) ||
+        !std::regex_match(user.password.verifier_hex, hex64))
         throw std::runtime_error("unsupported password verifier in auth store");
     return user;
 }
@@ -146,8 +151,9 @@ void AuthStore::load_locked() {
         TokenRecord token{item["id"].get<std::string>(), item["user_id"].get<std::string>(),
                           item["digest"].get<std::string>(), item["created_at"].get<std::int64_t>(),
                           item["expires_at"].get<std::int64_t>(), item["revoked"].get<bool>()};
-        if (token.id.empty() || token.user_id.empty() || token.digest.size() != 64 ||
-            token.expires_at <= token.created_at)
+        if (!std::regex_match(token.id, std::regex("^[a-f0-9]{32}$")) ||
+            !std::regex_match(token.digest, std::regex("^[a-f0-9]{64}$")) ||
+            token.user_id.empty() || token.created_at <= 0 || token.expires_at <= token.created_at)
             throw std::runtime_error("invalid token values in auth store");
         tokens.push_back(std::move(token));
     }
@@ -155,6 +161,9 @@ void AuthStore::load_locked() {
         for (std::size_t j = i + 1; j < users.size(); ++j)
             if (users[i].id == users[j].id || users[i].username == users[j].username)
                 throw std::runtime_error("duplicate user identity in auth store");
+    for (const auto& token : tokens)
+        if (std::none_of(users.begin(), users.end(), [&](const UserRecord& user) { return user.id == token.user_id; }))
+            throw std::runtime_error("token references an unknown user");
     users_ = std::move(users);
     tokens_ = std::move(tokens);
     loaded_ = true;
