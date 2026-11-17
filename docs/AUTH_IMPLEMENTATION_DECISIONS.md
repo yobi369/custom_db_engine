@@ -57,7 +57,7 @@ Argon2id remains the preferred future KDF if a maintained, portable implementati
 3. Completed on the development branch: password login, opaque token issuance, expiry, revocation, disabled-user handling, administrator password reset, user logout, and stale-credential race protection are implemented and tested.
 4. Completed on the development branch: centralized authentication and authorization runs before route handlers; legacy shared-key headers are not accepted once identity mode is active.
 5. Completed on the development branch: route-by-role and cross-database tests cover unknown routes, malformed/invalid tokens, API-key rejection, expired/revoked tokens, disabled users, restore restrictions, and administrator lockout prevention.
-6. Operational documentation is updated. Independent security review, inter-process auth-store locking, fault/load testing, and deployment hardening remain required before use beyond trusted local development.
+6. Operational documentation is updated. Independent security review, fault/load testing, and deployment hardening remain required before use beyond trusted local development. The server and bootstrap CLI now acquire an OS-level exclusive lock for the configured data directory; direct standalone AuthStore users must still coordinate access externally.
 
 ## Current implementation progress
 
@@ -66,7 +66,7 @@ Argon2id remains the preferred future KDF if a maintained, portable implementati
 - Implemented: hidden-terminal, one-time `--bootstrap-admin` CLI; passwords are confirmed interactively and are never accepted as command-line arguments.
 - Implemented: unit tests for password/token primitives and identity persistence, first-admin bootstrap, duplicate users, token expiry/revocation, disabled accounts, and last-administrator protection.
 - Implemented: `POST /v1/auth/login`, administrator user/grant/enable/password management, user-initiated logout, token revocation, pre-routing bearer authentication, role and per-database grants, restore restrictions, and per-IP login throttling.
-- Implemented: HTTP integration coverage for missing/invalid credentials, query-token rejection, legacy API-key rejection in identity mode, cross-database access, read/write roles, unknown routes, disabled accounts, token revocation, restore protection, login throttling, and last-admin lockout prevention.
+- Implemented: HTTP integration coverage for missing/invalid credentials, query-token rejection, legacy API-key rejection in identity mode, cross-database access, read/write roles, unknown routes, disabled accounts, password reset, logout, token revocation, restore protection, login throttling, last-admin lockout prevention, and concurrent-process data-directory exclusion.
 - Remaining: user self-service password change (password reset is administrator-only), structured security audit events, inter-process auth-store locking, full crash/power-loss durability guarantees, and independent security review. Windows filesystem ACLs remain the operator's responsibility.
 
 ## Explicit non-claims
