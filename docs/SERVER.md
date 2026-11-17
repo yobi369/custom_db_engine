@@ -33,6 +33,12 @@ The service binds to loopback by default. Binding to a non-loopback interface is
 - `PUT /v1/databases/{database}/indexes` with JSON body `{"field":"email"}` — create an equality index.
 - `DELETE /v1/databases/{database}/indexes?field=email` — drop an index.
 - `POST /v1/databases/{database}/transactions` — execute an atomic batch of up to 100 operations. Supported operation types are `put`, `delete`, and `insert_document`.
+- `GET /v1/databases/{database}/integrity` — verify the currently loaded state against the on-disk snapshot/WAL; returns `200` for a successful check.
+- `GET /v1/databases/{database}/backups` — list managed backups for one database.
+- `POST /v1/databases/{database}/backups` with JSON body `{"name":"before-upgrade"}` — create a new backup. Backup names are restricted and cannot contain paths; existing backup names are not overwritten.
+- `POST /v1/databases/{database}/backups/{backup}/restore` with JSON body `{"confirm":true}` — restore a managed backup. This replaces the active database state and requires explicit confirmation.
+
+Backups are stored beneath `CUSTOMDB_DATA_DIR/backups/{database}/`. The HTTP API does not accept filesystem paths for backup or restore operations.
 
 Database names are restricted to letters, digits, underscore, and hyphen, and must begin with a letter. The server constructs database paths itself; clients cannot supply filesystem paths.
 
