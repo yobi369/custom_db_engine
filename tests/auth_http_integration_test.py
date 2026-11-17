@@ -75,6 +75,14 @@ def main():
             else:
                 raise TimeoutError("CustomDB auth server did not become ready")
 
+            # A second process must not share the same identity and database directory.
+            second_env = env.copy()
+            second_env["CUSTOMDB_PORT"] = str(port + 1)
+            second_process = subprocess.run([server_exe], env=second_env, stdout=subprocess.DEVNULL,
+                                            stderr=subprocess.PIPE, timeout=5)
+            assert second_process.returncode == 2
+            assert b"already using this data directory" in second_process.stderr
+
             request(base, "/v1/databases", expected=401)
             request(base, "/v1/databases", legacy_key="legacy-secret", expected=401)
             request(base, "/v1/databases", token="not-a-valid-token", expected=401)
