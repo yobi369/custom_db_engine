@@ -71,4 +71,4 @@ Argon2id remains the preferred future KDF if a maintained, portable implementati
 
 ## Explicit non-claims
 
-This decision record is not an implementation, security certification, or production-readiness statement. Until all implementation gates pass, the server continues to use its existing shared API-key behavior and loopback-first defaults.
+This decision record is not a security certification or production-readiness statement. When an identity store exists, bearer-token authentication and role/database authorization are active; when no identity store exists, the server retains its legacy shared-key mode (and is unauthenticated on loopback if no key is configured). Keep deployments loopback-only unless a trusted TLS front end and explicit network exposure controls are in place.
