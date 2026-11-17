@@ -373,6 +373,37 @@ bool AuthStore::set_user_password(const std::string& username, const std::string
     return true;
 }
 
+bool AuthStore::change_user_password(const std::string& username,
+                                         const std::string& current_password,
+                                         const std::string& new_password) {
+    const auto snapshot = find_user(username);
+    if (!snapshot || !snapshot->enabled ||
+        !verify_password(current_password, snapshot->password)) return false;
+    const auto replacement = hash_password(new_password);
+    std::lock_guard<std::mutex> lock(mutex_);
+    load_locked();
+    const auto user = std::find_if(users_.begin(), users_.end(),
+        [&](const UserRecord& item) { return item.username == username; });
+    if (user == users_.end() || !user->enabled) return false;
+    if (user->password.algorithm != snapshot->password.algorithm ||
+        user->password.iterations != snapshot->password.iterations ||
+        user->password.salt_hex != snapshot->password.salt_hex ||
+        user->password.verifier_hex != snapshot->password.verifier_hex)
+        throw AuthPolicyError("credentials changed during password update; retry");
+    const auto previous_password = user->password;
+    const auto previous_tokens = tokens_;
+    user->password = replacement;
+    for (auto& token : tokens_)
+        if (token.user_id == user->id) token.revoked = true;
+    try { persist_locked(); }
+    catch (...) {
+        user->password = previous_password;
+        tokens_ = previous_tokens;
+        throw;
+    }
+    return true;
+}
+
 IssuedToken AuthStore::issue_token(const std::string& username, std::chrono::seconds lifetime,
                                   const PasswordVerifier* expected_password) {
     if (lifetime <= std::chrono::seconds::zero() || lifetime > std::chrono::hours(24 * 30))
