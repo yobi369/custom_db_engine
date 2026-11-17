@@ -65,9 +65,9 @@ Argon2id remains the preferred future KDF if a maintained, portable implementati
 - Implemented: version-1 JSON identity store with bounded record counts and file size, username/role/grant validation, first-account administrator restriction, disabled-user handling, token expiry metadata, revocation, POSIX file mode `0600`, and atomic replacement.
 - Implemented: hidden-terminal, one-time `--bootstrap-admin` CLI; passwords are confirmed interactively and are never accepted as command-line arguments.
 - Implemented: unit tests for password/token primitives and identity persistence, first-admin bootstrap, duplicate users, token expiry/revocation, disabled accounts, and last-administrator protection.
-- Implemented: `POST /v1/auth/login`, administrator user/grant/enable/password management, user-initiated logout, token revocation, pre-routing bearer authentication, role and per-database grants, restore restrictions, and per-IP login throttling.
+- Implemented: `POST /v1/auth/login`, administrator user/grant/enable/password management, user-initiated password change and logout, token revocation, pre-routing bearer authentication, role and per-database grants, restore restrictions, and per-IP login throttling.
 - Implemented: HTTP integration coverage for missing/invalid credentials, query-token rejection, legacy API-key rejection in identity mode, cross-database access, read/write roles, unknown routes, disabled accounts, password reset, logout, token revocation, restore protection, login throttling, last-admin lockout prevention, and concurrent-process data-directory exclusion.
-- Remaining: user self-service password change (password reset is administrator-only), structured security audit events, full crash/power-loss durability guarantees and cross-host coordination, and independent security review. Windows filesystem ACLs remain the operator's responsibility.
+- Remaining: structured security audit events, full crash/power-loss durability guarantees and cross-host coordination, and independent security review. Windows filesystem ACLs remain the operator's responsibility.
 
 ## Explicit non-claims
 
