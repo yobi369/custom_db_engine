@@ -76,7 +76,7 @@ UserRecord user_from_json(const json& value) {
     user.role = value["role"].get<std::string>();
     user.enabled = value["enabled"].get<bool>();
     if (user.id.empty() || !valid_username(user.username) || !valid_role(user.role) ||
-        user.grants.size() > kMaximumGrants)
+        value["grants"].size() > kMaximumGrants)
         throw std::runtime_error("invalid user fields in auth store");
     for (const auto& item : value["grants"]) {
         if (!item.is_object() || !item.contains("database") || !item["database"].is_string() ||
@@ -209,6 +209,8 @@ UserRecord AuthStore::create_user(const std::string& username, const std::string
     std::lock_guard<std::mutex> lock(mutex_);
     load_locked();
     if (users_.size() >= kMaximumUsers) throw std::runtime_error("user limit reached");
+    if (users_.empty() && role != "admin")
+        throw std::runtime_error("the first account must have the administrator role");
     if (std::any_of(users_.begin(), users_.end(), [&](const UserRecord& u) { return u.username == username; }))
         throw std::runtime_error("username already exists");
     UserRecord user{generate_bearer_token().substr(0, 32), username, verifier, role, true, grants};
@@ -265,7 +267,6 @@ IssuedToken AuthStore::issue_token(const std::string& username, std::chrono::sec
 std::optional<UserRecord> AuthStore::authenticate_token(const std::string& token,
     std::chrono::system_clock::time_point now) const {
     if (token.size() != 64) return std::nullopt;
-    const auto digest = digest_bearer_token(token);
     std::lock_guard<std::mutex> lock(mutex_);
     const_cast<AuthStore*>(this)->load_locked();
     const auto timestamp = unix_seconds(now);
@@ -277,7 +278,6 @@ std::optional<UserRecord> AuthStore::authenticate_token(const std::string& token
         return u.id == record->user_id && u.enabled;
     });
     if (user == users_.end()) return std::nullopt;
-    (void)digest;
     return *user;
 }
 
