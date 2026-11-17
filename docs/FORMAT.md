@@ -19,6 +19,10 @@ Mutations append a newline-terminated WAL record containing a generation number,
 
 A snapshot checkpoint is written every 64 WAL records. If a process stops before checkpointing, the WAL is the recovery source. After the snapshot is published, the WAL is truncated. The generation field prevents old records left by an interrupted truncation from overwriting a newer snapshot.
 
+## Recovery test coverage
+
+The storage test suite includes a separate-process abrupt-exit scenario that commits 70 writes, crosses the 64-record snapshot checkpoint boundary, terminates without running C++ destructors, then reopens the database and verifies every value plus the integrity check. This validates process-termination recovery for that scenario; it is not a power-loss simulator and does not replace fault injection around individual filesystem operations.
+
 ## Transaction behavior
 
 A transaction modifies an in-memory working snapshot. Commit appends the resulting state to the WAL; rollback discards it. This is a single-instance transaction model, not a multi-process or multi-client isolation guarantee.
