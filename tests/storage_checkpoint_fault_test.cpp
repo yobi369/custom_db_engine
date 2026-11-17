@@ -7,7 +7,7 @@
 
 #define CHECK(condition) do { \
     if (!(condition)) { \
-        std::cerr << "CHECK failed at line " << __LINE__ << ": " #condition << '\\n'; \
+        std::cerr << "CHECK failed at line " << __LINE__ << ": " #condition << '\n'; \
         return 1; \
     } \
 } while (false)
@@ -72,6 +72,6 @@ int main() {
     for (const auto& suffix : {"", ".wal", ".tmp", ".lock"})
         std::filesystem::remove(path + suffix, ec);
 
-    std::cout << "Checkpoint WAL-open fault recovery test passed\\n";
+    std::cout << "Checkpoint WAL-open fault recovery test passed\n";
     return 0;
 }
