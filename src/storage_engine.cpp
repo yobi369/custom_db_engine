@@ -576,7 +576,6 @@ public:
             if (!persist_locked(next)) return false;
             state_ = std::move(next);
         }
-        state_ = std::move(next);
         index_cache_.erase(collection);
         last_error_.clear();
         return true;
@@ -587,7 +586,8 @@ public:
         if (!valid_name(collection)) return fail("Collection name must not be empty");
         if (filters.empty()) return fail("Document deletion requires at least one equality filter");
         if (load_failed_) return fail("Database failed to load; refusing to overwrite the existing file");
-        json& view = in_transaction_ ? transaction_state_ : state_;
+        json next = in_transaction_ ? transaction_state_ : state_;
+        json& view = next;
         auto collection_it = view["documents"].find(collection);
         if (collection_it == view["documents"].end()) return fail("No documents matched the supplied filters");
         auto& documents = *collection_it;
