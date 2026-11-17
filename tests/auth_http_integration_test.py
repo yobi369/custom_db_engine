@@ -87,6 +87,11 @@ def main():
                     {"username": "newuser01", "password": "a sufficiently long password",
                      "role": "read_only", "grants": [{"database": "alpha", "permission": "read"}]},
                     token=admin["access_token"], expected=201)
+            created = login(base, "newuser01", "a sufficiently long password")
+            assert created["user"]["role"] == "read_only"
+            request(base, "/v1/auth/users/writer01/enabled", "PUT", {"enabled": False},
+                    token=admin["access_token"], expected=200)
+            request(base, "/v1/databases/alpha/kv/one", token=writer["access_token"], expected=401)
             request(base, f"/v1/auth/tokens/{reader['token_id']}/revoke", "POST",
                     token=admin["access_token"], expected=200)
             request(base, "/v1/databases/alpha/kv/one", token=reader["access_token"], expected=401)
