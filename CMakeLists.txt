@@ -99,6 +99,11 @@ if(BUILD_TESTING)
   add_test(NAME storage_engine_test COMMAND storage_engine_test)
   set_tests_properties(storage_engine_test PROPERTIES WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
 
+  add_executable(storage_temp_recovery_test tests/storage_temp_recovery_test.cpp)
+  target_link_libraries(storage_temp_recovery_test PRIVATE CustomDBEngine::custom_db_engine)
+  add_test(NAME storage_temp_recovery_test COMMAND storage_temp_recovery_test)
+  set_tests_properties(storage_temp_recovery_test PROPERTIES WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
+
   add_executable(property_storage_test tests/property_storage_test.cpp)
   target_link_libraries(property_storage_test PRIVATE CustomDBEngine::custom_db_engine)
   add_test(NAME property_storage_test COMMAND property_storage_test)
