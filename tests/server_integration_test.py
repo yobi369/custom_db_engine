@@ -126,7 +126,31 @@ def main():
                     {"name": "../escape"}, expected=400)
             request(base, "/v1/databases/integration/backups", "POST",
                     {"name": "before-restore"}, expected=409)
-            print("CustomDB HTTP integration tests passed")
+
+            # Restart against the same data directory and verify durable state.
+            process.terminate()
+            process.wait(timeout=5)
+            process = subprocess.Popen([executable], env=env, stdout=subprocess.DEVNULL,
+                                       stderr=subprocess.PIPE)
+            for _ in range(100):
+                if process.poll() is not None:
+                    raise RuntimeError(process.stderr.read().decode(errors="replace"))
+                try:
+                    request(base, "/health", key="", expected=200)
+                    break
+                except (OSError, urllib.error.URLError):
+                    time.sleep(0.05)
+            else:
+                raise TimeoutError("CustomDB server did not restart")
+            _, persisted = request(base, "/v1/databases/integration/kv/atomic")
+            assert persisted["value"] == "committed"
+            _, persisted_docs = request(base, "/v1/databases/integration/collections/members/documents?name=Grace")
+            assert persisted_docs["count"] == 1
+            _, persisted_backups = request(base, "/v1/databases/integration/backups")
+            assert any(item["name"] == "before-restore" for item in persisted_backups["backups"])
+            _, integrity = request(base, "/v1/databases/integration/integrity")
+            assert integrity["status"] == "ok"
+            print("CustomDB HTTP integration and restart persistence tests passed")
         finally:
             process.terminate()
             try:
