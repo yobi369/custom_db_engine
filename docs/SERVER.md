@@ -13,6 +13,14 @@ cmake --build build --parallel
 
 ## Run
 
+Create the first administrator locally before enabling the future token-authenticated API. This command prompts for a username and hidden password confirmation; it refuses to overwrite an existing auth store:
+
+```bash
+CUSTOMDB_DATA_DIR=./customdb-data ./build/custom_db_server --bootstrap-admin
+```
+
+Start the local service:
+
 ```bash
 CUSTOMDB_HOST=127.0.0.1 CUSTOMDB_PORT=7680 CUSTOMDB_DATA_DIR=./customdb-data ./build/custom_db_server
 ```
@@ -48,4 +56,4 @@ Database names are restricted to letters, digits, underscore, and hyphen, and mu
 
 Every engine operation is serialized by a server-wide mutex and opens one engine handle for the duration of the request. This is deliberate: the current engine's exclusive file lock and transaction state do not provide independent concurrent-client transactions. The initial server does not claim multi-writer throughput, transaction isolation between clients, TLS built into the process, distributed operation, or production readiness.
 
-The current HTTP API supports key-value operations, document insertion, equality-filtered document queries and mutations, schema creation, index management, managed backups, integrity checks, and serialized atomic batches. Schema updates, per-client identities and permissions, robust audit logging, native TLS, load/fault testing, and SDKs remain planned work. The multi-user authentication design is documented in [AUTHENTICATION_DESIGN.md](AUTHENTICATION_DESIGN.md), with implementation decisions in [AUTH_IMPLEMENTATION_DECISIONS.md](AUTH_IMPLEMENTATION_DECISIONS.md). OpenSSL-backed password hashing and bearer-token primitives plus a versioned local identity/token store are implemented and unit-tested on the development branch. They are not yet wired into HTTP routes, and the one-time administrator CLI and authorization middleware remain outstanding. The shared API-key behavior remains active; do not treat this as a complete authentication system. Keep backups of important data; the underlying engine itself documents its current durability and format limitations.
+The current HTTP API supports key-value operations, document insertion, equality-filtered document queries and mutations, schema creation, index management, managed backups, integrity checks, and serialized atomic batches. Schema updates, per-client identities and permissions, robust audit logging, native TLS, load/fault testing, and SDKs remain planned work. The multi-user authentication design is documented in [AUTHENTICATION_DESIGN.md](AUTHENTICATION_DESIGN.md), with implementation decisions in [AUTH_IMPLEMENTATION_DECISIONS.md](AUTH_IMPLEMENTATION_DECISIONS.md). OpenSSL-backed password hashing and bearer-token primitives plus a versioned local identity/token store and one-time hidden-terminal administrator bootstrap CLI are implemented and unit-tested on the development branch. They are not yet wired into HTTP routes, and bearer-token middleware and per-route authorization remain outstanding. The shared API-key behavior remains active; do not treat this as a complete authentication system. Keep backups of important data; the underlying engine itself documents its current durability and format limitations.
