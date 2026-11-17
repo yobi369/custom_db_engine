@@ -180,6 +180,114 @@ int main() {
             respond_json(response, 200, {{"key", key}, {"status", "deleted"}});
         });
 
+
+    server.Post(R"(/v1/databases/([a-zA-Z][a-zA-Z0-9_-]{0,62})/collections/([a-zA-Z][a-zA-Z0-9_-]{0,62})/documents)",
+        [root, api_key](const httplib::Request& request, httplib::Response& response) {
+            if (!authorized(request, api_key)) return respond_json(response, 401, {{"error", "unauthorized"}});
+            const auto name = request.matches[1].str();
+            const auto collection = request.matches[2].str();
+            const auto document = json::parse(request.body, nullptr, false);
+            if (document.is_discarded() || !document.is_object())
+                return respond_json(response, 400, {{"error", "request body must be a JSON object"}});
+            std::lock_guard<std::mutex> lock(engine_mutex);
+            const auto path = database_path(root, name);
+            if (!fs::is_regular_file(path)) return respond_json(response, 404, {{"error", "database not found"}});
+            try {
+                StorageEngine engine(path.string());
+                if (!engine.write_document(collection, document.dump()))
+                    return respond_json(response, 400, {{"error", engine.get_last_error()}});
+            } catch (const std::exception& error) {
+                return respond_json(response, 500, {{"error", error.what()}});
+            }
+            respond_json(response, 201, {{"collection", collection}, {"status", "inserted"}, {"document", document}});
+        });
+
+    server.Get(R"(/v1/databases/([a-zA-Z][a-zA-Z0-9_-]{0,62})/collections/([a-zA-Z][a-zA-Z0-9_-]{0,62})/documents)",
+        [root, api_key](const httplib::Request& request, httplib::Response& response) {
+            if (!authorized(request, api_key)) return respond_json(response, 401, {{"error", "unauthorized"}});
+            const auto name = request.matches[1].str();
+            const auto collection = request.matches[2].str();
+            std::map<std::string, std::string> filters;
+            for (const auto& parameter : request.params) filters[parameter.first] = parameter.second;
+            std::lock_guard<std::mutex> lock(engine_mutex);
+            const auto path = database_path(root, name);
+            if (!fs::is_regular_file(path)) return respond_json(response, 404, {{"error", "database not found"}});
+            try {
+                StorageEngine engine(path.string());
+                const auto rows = engine.query_documents(collection, filters);
+                const auto error = engine.get_last_error();
+                if (!error.empty()) return respond_json(response, 400, {{"error", error}});
+                json documents = json::array();
+                for (const auto& row : rows) {
+                    auto parsed = json::parse(row, nullptr, false);
+                    if (!parsed.is_discarded()) documents.push_back(std::move(parsed));
+                }
+                respond_json(response, 200, {{"collection", collection}, {"count", documents.size()}, {"documents", documents}});
+            } catch (const std::exception& error) {
+                respond_json(response, 500, {{"error", error.what()}});
+            }
+        });
+
+    server.Post(R"(/v1/databases/([a-zA-Z][a-zA-Z0-9_-]{0,62})/schemas)",
+        [root, api_key](const httplib::Request& request, httplib::Response& response) {
+            if (!authorized(request, api_key)) return respond_json(response, 401, {{"error", "unauthorized"}});
+            const auto name = request.matches[1].str();
+            const auto schema = json::parse(request.body, nullptr, false);
+            if (schema.is_discarded() || !schema.is_object())
+                return respond_json(response, 400, {{"error", "request body must be a schema JSON object"}});
+            std::lock_guard<std::mutex> lock(engine_mutex);
+            const auto path = database_path(root, name);
+            if (!fs::is_regular_file(path)) return respond_json(response, 404, {{"error", "database not found"}});
+            try {
+                StorageEngine engine(path.string());
+                if (!engine.create_schema(schema.dump()))
+                    return respond_json(response, 400, {{"error", engine.get_last_error()}});
+            } catch (const std::exception& error) {
+                return respond_json(response, 500, {{"error", error.what()}});
+            }
+            respond_json(response, 201, {{"status", "schema_created"}, {"schema", schema}});
+        });
+
+    server.Put(R"(/v1/databases/([a-zA-Z][a-zA-Z0-9_-]{0,62})/indexes)",
+        [root, api_key](const httplib::Request& request, httplib::Response& response) {
+            if (!authorized(request, api_key)) return respond_json(response, 401, {{"error", "unauthorized"}});
+            const auto name = request.matches[1].str();
+            const auto body = json::parse(request.body, nullptr, false);
+            if (body.is_discarded() || !body.is_object() || !body.contains("field") || !body["field"].is_string())
+                return respond_json(response, 400, {{"error", "expected JSON body with string field 'field'"}});
+            const auto field = body["field"].get<std::string>();
+            std::lock_guard<std::mutex> lock(engine_mutex);
+            const auto path = database_path(root, name);
+            if (!fs::is_regular_file(path)) return respond_json(response, 404, {{"error", "database not found"}});
+            try {
+                StorageEngine engine(path.string());
+                if (!engine.create_index(field))
+                    return respond_json(response, 400, {{"error", engine.get_last_error()}});
+            } catch (const std::exception& error) {
+                return respond_json(response, 500, {{"error", error.what()}});
+            }
+            respond_json(response, 201, {{"status", "index_created"}, {"field", field}});
+        });
+
+    server.Delete(R"(/v1/databases/([a-zA-Z][a-zA-Z0-9_-]{0,62})/indexes)",
+        [root, api_key](const httplib::Request& request, httplib::Response& response) {
+            if (!authorized(request, api_key)) return respond_json(response, 401, {{"error", "unauthorized"}});
+            const auto name = request.matches[1].str();
+            const auto field = request.get_param_value("field");
+            if (field.empty()) return respond_json(response, 400, {{"error", "missing field query parameter"}});
+            std::lock_guard<std::mutex> lock(engine_mutex);
+            const auto path = database_path(root, name);
+            if (!fs::is_regular_file(path)) return respond_json(response, 404, {{"error", "database not found"}});
+            try {
+                StorageEngine engine(path.string());
+                if (!engine.drop_index(field))
+                    return respond_json(response, 404, {{"error", engine.get_last_error()}});
+            } catch (const std::exception& error) {
+                return respond_json(response, 500, {{"error", error.what()}});
+            }
+            respond_json(response, 200, {{"status", "index_dropped"}, {"field", field}});
+        });
+
     std::cout << "CustomDB server listening on " << host << ':' << port
               << " using data directory " << root << '\n';
     if (!api_key.empty()) std::cout << "API-key authentication is enabled.\n";
