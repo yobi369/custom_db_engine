@@ -104,6 +104,19 @@ if(BUILD_TESTING)
   add_test(NAME storage_temp_recovery_test COMMAND storage_temp_recovery_test)
   set_tests_properties(storage_temp_recovery_test PROPERTIES WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
 
+  # Build a separate engine copy with fault injection compiled in only for tests.
+  add_library(custom_db_engine_fault_test STATIC src/storage_engine.cpp)
+  target_compile_features(custom_db_engine_fault_test PUBLIC cxx_std_17)
+  target_include_directories(custom_db_engine_fault_test PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
+  target_include_directories(custom_db_engine_fault_test PRIVATE
+    $<TARGET_PROPERTY:nlohmann_json::nlohmann_json,INTERFACE_INCLUDE_DIRECTORIES>)
+  target_compile_definitions(custom_db_engine_fault_test PRIVATE CUSTOM_DB_ENGINE_TEST_FAULTS)
+  add_executable(storage_checkpoint_fault_test tests/storage_checkpoint_fault_test.cpp)
+  target_link_libraries(storage_checkpoint_fault_test PRIVATE custom_db_engine_fault_test)
+  add_test(NAME storage_checkpoint_fault_test COMMAND storage_checkpoint_fault_test)
+  set_tests_properties(storage_checkpoint_fault_test PROPERTIES WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
+
   add_executable(property_storage_test tests/property_storage_test.cpp)
   target_link_libraries(property_storage_test PRIVATE CustomDBEngine::custom_db_engine)
   add_test(NAME property_storage_test COMMAND property_storage_test)
