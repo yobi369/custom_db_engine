@@ -5,9 +5,9 @@
 #include <nlohmann/json.hpp>
 
 #include <cstdlib>
+#include <cstdio>
 #include <filesystem>
 #include <iostream>
-#include <limits>
 #ifdef _WIN32
 #include <conio.h>
 #include <io.h>
