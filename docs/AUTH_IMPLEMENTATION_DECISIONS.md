@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted for the first implementation milestone. This records implementation choices; it does not claim that authentication is implemented.
+Accepted implementation plan. The OpenSSL crypto wrappers and a first versioned identity/token store are implemented and unit-tested on the development branch. The local administrator CLI, HTTP login, middleware, authorization enforcement, and full security gates are not yet implemented. This is not a complete authentication system.
 
 ## Cryptographic provider
 
@@ -58,6 +58,13 @@ Argon2id remains the preferred future KDF if a maintained, portable implementati
 4. Add centralized authentication and authorization; remove per-route shared-key checks only after every route is covered.
 5. Add route-by-role and cross-database authorization tests, including unknown routes, malformed headers, expired/revoked tokens, and restore restrictions.
 6. Update operational documentation and complete a security review before describing the server as suitable for anything beyond trusted local development.
+
+## Current implementation progress
+
+- Implemented: PBKDF2-HMAC-SHA-256 password verifiers, random bearer-token generation, SHA-256 token digests, and constant-time verification.
+- Implemented: version-1 JSON identity store with bounded record counts and file size, username/role/grant validation, first-account administrator restriction, disabled-user handling, token expiry metadata, revocation, POSIX file mode `0600`, and atomic replacement.
+- Implemented: unit tests for password/token primitives and identity persistence, duplicate users, token revocation, and disabled accounts.
+- Not implemented: one-time local CLI bootstrap, authentication HTTP endpoints, bearer-token middleware, per-route authorization, rate limiting, audit events, or full crash/power-loss durability guarantees. Windows filesystem ACLs remain the operator's responsibility.
 
 ## Explicit non-claims
 
