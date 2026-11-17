@@ -379,40 +379,52 @@ int main(int argc, char* argv[]) {
         return httplib::Server::HandlerResponse::Unhandled;
     });
 
-    server.Post("/v1/auth/login", [&auth, token_auth_enabled](const httplib::Request& request,
+    server.Post("/v1/auth/login", [&auth, &audit, token_auth_enabled](const httplib::Request& request,
                                                                httplib::Response& response) {
         if (!token_auth_enabled)
             return respond_json(response, 503, {{"error", "administrator bootstrap is required before token login"}});
         const auto remote_address = request.remote_addr;
         if (login_is_limited(remote_address)) {
+            record_audit(audit, "login_throttled", "anonymous", "", "rate_limited", remote_address);
             response.set_header("Retry-After", "60");
             return respond_json(response, 429, {{"error", "too many failed login attempts; try again later"}});
         }
         const auto body = json::parse(request.body, nullptr, false);
         if (body.is_discarded() || !body.is_object() || !body.contains("username") ||
-            !body["username"].is_string() || !body.contains("password") || !body["password"].is_string())
+            !body["username"].is_string() || !body.contains("password") || !body["password"].is_string()) {
+            record_audit(audit, "login_rejected", "anonymous", "", "invalid_request", remote_address);
             return respond_json(response, 400, {{"error", "expected username and password strings"}});
+        }
         std::optional<customdb::security::UserRecord> user;
         try { user = auth.authenticate_password(body["username"].get<std::string>(),
                                                  body["password"].get<std::string>()); }
         catch (const std::exception&) { return respond_json(response, 503, {{"error", "authentication store unavailable"}}); }
         if (!user) {
             record_login_failure(remote_address);
+            auto attempted_username = body["username"].get<std::string>();
+            if (attempted_username.size() > 256) attempted_username.resize(256);
+            record_audit(audit, "login_failed", "anonymous", attempted_username,
+                         "invalid_credentials", remote_address);
             return respond_json(response, 401, {{"error", "invalid username or password"}});
         }
         clear_login_failures(remote_address);
         try {
             const auto issued = auth.issue_token(user->username, std::chrono::hours(24), &user->password);
+            record_audit(audit, "login_succeeded", user->username, user->username, "success", remote_address);
             respond_json(response, 200, {{"token_type", "Bearer"}, {"access_token", issued.token}, {"token_id", issued.id},
                 {"expires_at", issued.expires_at}, {"user", {{"username", user->username}, {"role", user->role}}}});
         } catch (const customdb::security::AuthPolicyError&) {
+            record_audit(audit, "login_failed", "anonymous", user->username,
+                         "credentials_changed_during_login", remote_address);
             respond_json(response, 401, {{"error", "credentials changed during login; retry"}});
-        } catch (const std::exception& error) {
-            respond_json(response, 500, {{"error", error.what()}});
+        } catch (const std::exception&) {
+            record_audit(audit, "login_failed", "anonymous", user->username,
+                         "token_issue_error", remote_address);
+            respond_json(response, 500, {{"error", "token issuance failed"}});
         }
     });
 
-    server.Post("/v1/auth/users", [&auth, token_auth_enabled](const httplib::Request& request,
+    server.Post("/v1/auth/users", [&auth, &audit, token_auth_enabled](const httplib::Request& request,
                                                                httplib::Response& response) {
         if (!token_auth_enabled) return respond_json(response, 503, {{"error", "administrator bootstrap is required"}});
         const auto body = json::parse(request.body, nullptr, false);
@@ -434,6 +446,8 @@ int main(int argc, char* argv[]) {
         try {
             const auto user = auth.create_user(body["username"].get<std::string>(),
                 body["password"].get<std::string>(), body["role"].get<std::string>(), grants);
+            record_audit(audit, "user_created", audit_actor(auth, request), user.username,
+                         "success", request.remote_addr);
             respond_json(response, 201, {{"username", user.username}, {"role", user.role},
                 {"enabled", user.enabled}, {"grants", body.value("grants", json::array())}});
         } catch (const std::invalid_argument& error) {
@@ -443,7 +457,7 @@ int main(int argc, char* argv[]) {
         }
     });
 
-    server.Get("/v1/auth/users", [&auth, token_auth_enabled](const httplib::Request&, httplib::Response& response) {
+    server.Get("/v1/auth/users", [&auth, &audit, token_auth_enabled](const httplib::Request&, httplib::Response& response) {
         if (!token_auth_enabled) return respond_json(response, 503, {{"error", "authentication is not initialized"}});
         json users = json::array();
         try {
@@ -454,6 +468,7 @@ int main(int argc, char* argv[]) {
                 users.push_back({{"username", user.username}, {"role", user.role},
                                  {"enabled", user.enabled}, {"grants", grants}});
             }
+            record_audit(audit, "users_listed", audit_actor(auth, request), "", "success", request.remote_addr);
             respond_json(response, 200, {{"users", users}});
         } catch (const std::exception&) {
             respond_json(response, 503, {{"error", "authentication store unavailable"}});
