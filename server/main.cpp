@@ -171,7 +171,12 @@ int main(int argc, char* argv[]) {
             response.set_header("WWW-Authenticate", "Bearer");
             return httplib::Server::HandlerResponse::Handled;
         }
-        const auto principal = auth.authenticate_token(authorization.substr(7));
+        std::optional<customdb::security::UserRecord> principal;
+        try { principal = auth.authenticate_token(authorization.substr(7)); }
+        catch (const std::exception&) {
+            respond_json(response, 503, {{"error", "authentication store unavailable"}});
+            return httplib::Server::HandlerResponse::Handled;
+        }
         if (!principal) {
             respond_json(response, 401, {{"error", "invalid or expired bearer token"}});
             response.set_header("WWW-Authenticate", "Bearer error=\"invalid_token\"");
@@ -218,8 +223,10 @@ int main(int argc, char* argv[]) {
         if (body.is_discarded() || !body.is_object() || !body.contains("username") ||
             !body["username"].is_string() || !body.contains("password") || !body["password"].is_string())
             return respond_json(response, 400, {{"error", "expected username and password strings"}});
-        const auto user = auth.authenticate_password(body["username"].get<std::string>(),
-                                                      body["password"].get<std::string>());
+        std::optional<customdb::security::UserRecord> user;
+        try { user = auth.authenticate_password(body["username"].get<std::string>(),
+                                                 body["password"].get<std::string>()); }
+        catch (const std::exception&) { return respond_json(response, 503, {{"error", "authentication store unavailable"}}); }
         if (!user) return respond_json(response, 401, {{"error", "invalid username or password"}});
         try {
             const auto issued = auth.issue_token(user->username);
@@ -260,6 +267,22 @@ int main(int argc, char* argv[]) {
             respond_json(response, 409, {{"error", error.what()}});
         }
     });
+
+    server.Put(R"(/v1/auth/users/([A-Za-z0-9_.@-]{3,64})/enabled)",
+        [&auth, token_auth_enabled](const httplib::Request& request, httplib::Response& response) {
+            if (!token_auth_enabled) return respond_json(response, 503, {{"error", "authentication is not initialized"}});
+            const auto body = json::parse(request.body, nullptr, false);
+            if (body.is_discarded() || !body.is_object() || !body.contains("enabled") ||
+                !body["enabled"].is_boolean())
+                return respond_json(response, 400, {{"error", "expected boolean field 'enabled'"}});
+            try {
+                if (!auth.set_user_enabled(request.matches[1].str(), body["enabled"].get<bool>()))
+                    return respond_json(response, 404, {{"error", "user not found"}});
+                respond_json(response, 200, {{"status", "updated"}});
+            } catch (const std::exception& error) {
+                respond_json(response, 500, {{"error", error.what()}});
+            }
+        });
 
     server.Post(R"(/v1/auth/tokens/([a-f0-9]{32})/revoke)",
         [&auth, token_auth_enabled](const httplib::Request& request, httplib::Response& response) {
