@@ -108,7 +108,7 @@ int main(int argc, char* argv[]) {
             if (password != confirmation) throw std::runtime_error("passwords do not match");
             customdb::security::AuthStore auth(root / "auth" / "auth_store.json");
             auth.bootstrap_admin(username, password);
-            std::cout << "Administrator account created in " << (root / "auth" / "auth_store.json") << '.\n';
+            std::cout << "Administrator account created in " << (root / "auth" / "auth_store.json") << ".\n";
             return 0;
         } catch (const std::exception& error) {
             std::cerr << "Administrator bootstrap failed: " << error.what() << '\n';
