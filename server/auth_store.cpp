@@ -106,7 +106,7 @@ void AuthStore::initialize() {
         throw std::runtime_error("auth store already exists; refusing to overwrite");
     users_.clear();
     tokens_.clear();
-    std::filesystem::create_directories(file_.parent_path());
+    if (!file_.parent_path().empty()) std::filesystem::create_directories(file_.parent_path());
     persist_locked();
     loaded_ = true;
 }
@@ -240,10 +240,11 @@ bool AuthStore::set_user_enabled(const std::string& username, bool enabled) {
     const auto it = std::find_if(users_.begin(), users_.end(), [&](const UserRecord& u) { return u.username == username; });
     if (it == users_.end()) return false;
     const auto old = it->enabled;
+    const auto old_tokens = tokens_;
     it->enabled = enabled;
     if (!enabled)
         for (auto& token : tokens_) if (token.user_id == it->id) token.revoked = true;
-    try { persist_locked(); } catch (...) { it->enabled = old; throw; }
+    try { persist_locked(); } catch (...) { it->enabled = old; tokens_ = old_tokens; throw; }
     return true;
 }
 
