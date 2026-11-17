@@ -4,7 +4,7 @@ This is the first HTTP server layer around the existing C++ storage engine. It i
 
 ## Build
 
-The server is an optional target. CMake downloads cpp-httplib when the server option is enabled and the dependency is not otherwise provided by the build environment.
+The server is an optional target. Enabling it requires OpenSSL 3.x (libcrypto) for authentication cryptographic primitives. CMake downloads cpp-httplib when the server option is enabled and the dependency is not otherwise provided by the build environment.
 
 ```bash
 cmake -S . -B build -DCUSTOM_DB_ENGINE_BUILD_SERVER=ON
@@ -48,4 +48,4 @@ Database names are restricted to letters, digits, underscore, and hyphen, and mu
 
 Every engine operation is serialized by a server-wide mutex and opens one engine handle for the duration of the request. This is deliberate: the current engine's exclusive file lock and transaction state do not provide independent concurrent-client transactions. The initial server does not claim multi-writer throughput, transaction isolation between clients, TLS built into the process, distributed operation, or production readiness.
 
-The current HTTP API supports key-value operations, document insertion, equality-filtered document queries and mutations, schema creation, index management, managed backups, integrity checks, and serialized atomic batches. Schema updates, per-client identities and permissions, robust audit logging, native TLS, load/fault testing, and SDKs remain planned work. The proposed multi-user authentication, credential storage, and database-role design is documented in [AUTHENTICATION_DESIGN.md](AUTHENTICATION_DESIGN.md); it is a design only, not an implemented security feature. Keep backups of important data; the underlying engine itself documents its current durability and format limitations.
+The current HTTP API supports key-value operations, document insertion, equality-filtered document queries and mutations, schema creation, index management, managed backups, integrity checks, and serialized atomic batches. Schema updates, per-client identities and permissions, robust audit logging, native TLS, load/fault testing, and SDKs remain planned work. The multi-user authentication design is documented in [AUTHENTICATION_DESIGN.md](AUTHENTICATION_DESIGN.md), with implementation decisions in [AUTH_IMPLEMENTATION_DECISIONS.md](AUTH_IMPLEMENTATION_DECISIONS.md). OpenSSL-backed password hashing and bearer-token primitives are now implemented and unit-tested, but are not yet wired into HTTP routes or identity storage. The shared API-key behavior remains active; do not treat these primitives as a complete authentication system. Keep backups of important data; the underlying engine itself documents its current durability and format limitations.
