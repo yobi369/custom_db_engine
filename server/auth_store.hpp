@@ -39,6 +39,7 @@ public:
 
     // Creates a new empty store. Fails if a store already exists.
     void initialize();
+    UserRecord bootstrap_admin(const std::string& username, const std::string& password);
     bool initialized() const;
 
     // Usernames are case-sensitive. The first user may be an administrator.
