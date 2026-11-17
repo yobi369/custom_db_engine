@@ -94,6 +94,10 @@ def main():
                     token=admin["access_token"], expected=200)
             request(base, "/v1/databases/alpha/kv/one", "PUT", {"value": "4"},
                     token=reader["access_token"], expected=403)
+            request(base, "/v1/databases/alpha/backups", "POST", {"name": "auth-snapshot"},
+                    token=admin["access_token"], expected=201)
+            request(base, "/v1/databases/alpha/backups/auth-snapshot/restore", "POST", {"confirm": True},
+                    token=writer["access_token"], expected=403)
             request(base, "/v1/databases/beta/kv/one", token=writer["access_token"], expected=403)
             request(base, "/v1/databases", token=reader["access_token"], expected=403)
             request(base, "/v1/auth/users", "POST",
