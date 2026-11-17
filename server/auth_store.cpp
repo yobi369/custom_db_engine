@@ -191,10 +191,18 @@ void AuthStore::load_locked() {
         TokenRecord token{item["id"].get<std::string>(), item["user_id"].get<std::string>(),
                           item["digest"].get<std::string>(), item["created_at"].get<std::int64_t>(),
                           item["expires_at"].get<std::int64_t>(), item["revoked"].get<bool>()};
+        constexpr std::int64_t kMaximumTokenLifetimeSeconds = 30LL * 24 * 60 * 60;
         if (!std::regex_match(token.id, std::regex("^[a-f0-9]{32}$")) ||
             !std::regex_match(token.digest, std::regex("^[a-f0-9]{64}$")) ||
-            token.user_id.empty() || token.created_at <= 0 || token.expires_at <= token.created_at)
+            token.user_id.empty() || token.created_at <= 0 ||
+            token.created_at > std::numeric_limits<std::int64_t>::max() - kMaximumTokenLifetimeSeconds ||
+            token.expires_at <= token.created_at ||
+            token.expires_at > token.created_at + kMaximumTokenLifetimeSeconds)
             throw std::runtime_error("invalid token values in auth store");
+        if (std::any_of(tokens.begin(), tokens.end(), [&](const TokenRecord& existing) {
+                return existing.id == token.id || existing.digest == token.digest;
+            }))
+            throw std::runtime_error("duplicate token identity in auth store");
         tokens.push_back(std::move(token));
     }
     for (std::size_t i = 0; i < users.size(); ++i)
