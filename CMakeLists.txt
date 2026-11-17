@@ -122,6 +122,11 @@ if(BUILD_TESTING)
   add_test(NAME storage_snapshot_publish_fault_test COMMAND storage_snapshot_publish_fault_test)
   set_tests_properties(storage_snapshot_publish_fault_test PROPERTIES WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
 
+  add_executable(storage_wal_partial_append_fault_test tests/storage_wal_partial_append_fault_test.cpp)
+  target_link_libraries(storage_wal_partial_append_fault_test PRIVATE custom_db_engine_fault_test)
+  add_test(NAME storage_wal_partial_append_fault_test COMMAND storage_wal_partial_append_fault_test)
+  set_tests_properties(storage_wal_partial_append_fault_test PROPERTIES WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
+
   add_executable(property_storage_test tests/property_storage_test.cpp)
   target_link_libraries(property_storage_test PRIVATE CustomDBEngine::custom_db_engine)
   add_test(NAME property_storage_test COMMAND property_storage_test)
