@@ -15,6 +15,7 @@ constexpr unsigned int kPasswordIterations = 600000;
 constexpr int kSaltBytes = 16;
 constexpr int kDerivedBytes = 32;
 constexpr int kTokenBytes = 32;
+constexpr std::size_t kMaximumPasswordBytes = 1024;
 
 std::string to_hex(const unsigned char* bytes, std::size_t length) {
     static constexpr char digits[] = "0123456789abcdef";
@@ -50,6 +51,8 @@ void require_crypto_success(int result, const char* operation) {
 
 PasswordVerifier hash_password(const std::string& password) {
     if (password.empty()) throw std::invalid_argument("password must not be empty");
+    if (password.size() > kMaximumPasswordBytes)
+        throw std::invalid_argument("password exceeds the 1024-byte limit");
     std::array<unsigned char, kSaltBytes> salt{};
     std::array<unsigned char, kDerivedBytes> derived{};
     require_crypto_success(RAND_bytes(salt.data(), static_cast<int>(salt.size())), "RAND_bytes");
@@ -57,12 +60,14 @@ PasswordVerifier hash_password(const std::string& password) {
         password.data(), static_cast<int>(password.size()), salt.data(), static_cast<int>(salt.size()),
         static_cast<int>(kPasswordIterations), EVP_sha256(), static_cast<int>(derived.size()), derived.data()),
         "PKCS5_PBKDF2_HMAC");
+    const auto verifier = to_hex(derived.data(), derived.size());
+    OPENSSL_cleanse(derived.data(), derived.size());
     return {"pbkdf2-hmac-sha256", kPasswordIterations,
-            to_hex(salt.data(), salt.size()), to_hex(derived.data(), derived.size())};
+            to_hex(salt.data(), salt.size()), verifier};
 }
 
 bool verify_password(const std::string& password, const PasswordVerifier& stored) {
-    if (password.empty() || stored.algorithm != "pbkdf2-hmac-sha256" ||
+    if (password.empty() || password.size() > kMaximumPasswordBytes || stored.algorithm != "pbkdf2-hmac-sha256" ||
         stored.iterations < 100000 || stored.iterations > 2000000) return false;
     std::array<unsigned char, kSaltBytes> salt{};
     std::array<unsigned char, kDerivedBytes> expected{};
@@ -72,7 +77,10 @@ bool verify_password(const std::string& password, const PasswordVerifier& stored
     if (PKCS5_PBKDF2_HMAC(password.data(), static_cast<int>(password.size()),
             salt.data(), static_cast<int>(salt.size()), static_cast<int>(stored.iterations),
             EVP_sha256(), static_cast<int>(actual.size()), actual.data()) != 1) return false;
-    return CRYPTO_memcmp(actual.data(), expected.data(), actual.size()) == 0;
+    const bool matches = CRYPTO_memcmp(actual.data(), expected.data(), actual.size()) == 0;
+    OPENSSL_cleanse(actual.data(), actual.size());
+    OPENSSL_cleanse(expected.data(), expected.size());
+    return matches;
 }
 
 std::string generate_bearer_token() {
