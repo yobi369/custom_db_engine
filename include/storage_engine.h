@@ -21,6 +21,8 @@ public:
     std::string read_data(const std::string& key);
     bool delete_data(const std::string& key);
     bool write_document(const std::string& collection, const std::string& json_data);
+    bool update_documents(const std::string& collection, const std::map<std::string, std::string>& filters, const std::string& json_data);
+    bool delete_documents(const std::string& collection, const std::map<std::string, std::string>& filters);
     std::vector<std::string> query_documents(const std::string& collection, const std::map<std::string, std::string>& filters);
     bool create_schema(const std::string& schema_definition);
     bool update_schema(const std::string& schema_definition);
