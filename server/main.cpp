@@ -1,5 +1,6 @@
 #include "storage_engine.h"
 #include "auth_store.hpp"
+#include "audit_log.hpp"
 
 #include <httplib.h>
 #include <nlohmann/json.hpp>
@@ -141,6 +142,28 @@ void respond_json(httplib::Response& response, int status, const json& body) {
     response.set_content(body.dump(), "application/json; charset=utf-8");
 }
 
+void record_audit(customdb::security::AuditLog& audit, const std::string& event,
+                  const std::string& actor, const std::string& target,
+                  const std::string& outcome, const std::string& remote_address = {}) noexcept {
+    try {
+        audit.record(event, actor, target, outcome, remote_address);
+    } catch (const std::exception&) {
+        // Do not leak request data or credentials to stderr if audit persistence fails.
+        std::cerr << "CustomDB security audit event could not be persisted\\n";
+    }
+}
+
+std::string audit_actor(customdb::security::AuthStore& auth, const httplib::Request& request) {
+    const auto authorization = request.get_header_value("Authorization");
+    if (authorization.size() <= 7) return "anonymous";
+    try {
+        const auto principal = auth.authenticate_token(authorization.substr(7));
+        return principal ? principal->username : "anonymous";
+    } catch (const std::exception&) {
+        return "anonymous";
+    }
+}
+
 bool authorized(const httplib::Request& request, const std::string& api_key) {
     if (bearer_auth_active && request.has_header("Authorization")) return true;
     if (api_key.empty()) return true;
@@ -236,6 +259,7 @@ int main(int argc, char* argv[]) {
     const auto api_key = env_or("CUSTOMDB_API_KEY", "");
     const bool allow_non_loopback = env_or("CUSTOMDB_ALLOW_NON_LOOPBACK", "0") == "1";
     customdb::security::AuthStore auth(root / "auth" / "auth_store.json");
+    customdb::security::AuditLog audit(root / "audit" / "security.jsonl");
     const bool token_auth_enabled = auth.initialized();
     bearer_auth_active = token_auth_enabled;
 
@@ -262,7 +286,7 @@ int main(int argc, char* argv[]) {
 
     // Once an identity store exists, every route except health and password login
     // requires a valid bearer token and an explicit database grant.
-    server.set_pre_routing_handler([&auth, token_auth_enabled](const httplib::Request& request,
+    server.set_pre_routing_handler([&auth, &audit, token_auth_enabled](const httplib::Request& request,
                                                                httplib::Response& response) {
         if (request.path == "/health" || request.path == "/v1/auth/login")
             return httplib::Server::HandlerResponse::Unhandled;
@@ -278,6 +302,8 @@ int main(int argc, char* argv[]) {
             std::tolower(static_cast<unsigned char>(authorization[4])) != 'e' ||
             std::tolower(static_cast<unsigned char>(authorization[5])) != 'r' ||
             authorization[6] != ' ') {
+            record_audit(audit, "authentication_rejected", "anonymous", request.path,
+                         "missing_or_malformed_token", request.remote_addr);
             respond_json(response, 401, {{"error", "bearer token required"}});
             response.set_header("WWW-Authenticate", "Bearer");
             response.set_header("Connection", "close");
@@ -286,11 +312,15 @@ int main(int argc, char* argv[]) {
         std::optional<customdb::security::UserRecord> principal;
         try { principal = auth.authenticate_token(authorization.substr(7)); }
         catch (const std::exception&) {
+            record_audit(audit, "authentication_store_error", "anonymous", request.path,
+                         "unavailable", request.remote_addr);
             respond_json(response, 503, {{"error", "authentication store unavailable"}});
             response.set_header("Connection", "close");
             return httplib::Server::HandlerResponse::Handled;
         }
         if (!principal) {
+            record_audit(audit, "authentication_rejected", "anonymous", request.path,
+                         "invalid_or_expired_token", request.remote_addr);
             respond_json(response, 401, {{"error", "invalid or expired bearer token"}});
             response.set_header("WWW-Authenticate", "Bearer error=\"invalid_token\"");
             response.set_header("Connection", "close");
@@ -309,6 +339,8 @@ int main(int argc, char* argv[]) {
 
         static const std::regex restore_route("^/v1/databases/[A-Za-z][A-Za-z0-9_-]{0,62}/backups/[A-Za-z0-9_-]{1,64}/restore$");
         if (request.method == "POST" && std::regex_match(request.path, restore_route)) {
+            record_audit(audit, "authorization_denied", principal->username, request.path,
+                         "administrator_required", request.remote_addr);
             respond_json(response, 403, {{"error", "administrator permission required for restore"}});
             response.set_header("Connection", "close");
             return httplib::Server::HandlerResponse::Handled;
@@ -320,6 +352,8 @@ int main(int argc, char* argv[]) {
             const auto database = match[1].str();
             const bool write_request = request.method != "GET" && request.method != "HEAD";
             if (write_request && principal->role == "read_only") {
+                record_audit(audit, "authorization_denied", principal->username, database,
+                             "read_only_role", request.remote_addr);
                 respond_json(response, 403, {{"error", "read-only account cannot modify data"}});
                 response.set_header("Connection", "close");
                 return httplib::Server::HandlerResponse::Handled;
@@ -329,11 +363,15 @@ int main(int argc, char* argv[]) {
             const bool permitted = grant != principal->grants.end() &&
                 (!write_request || grant->permission == "write");
             if (!permitted) {
+                record_audit(audit, "authorization_denied", principal->username, database,
+                             "database_grant_missing_or_insufficient", request.remote_addr);
                 respond_json(response, 403, {{"error", "database permission denied"}});
                 response.set_header("Connection", "close");
                 return httplib::Server::HandlerResponse::Handled;
             }
         } else if (request.path.rfind("/v1/", 0) == 0) {
+            record_audit(audit, "authorization_denied", principal->username, request.path,
+                         "administrator_required", request.remote_addr);
             respond_json(response, 403, {{"error", "administrator permission required"}});
             response.set_header("Connection", "close");
             return httplib::Server::HandlerResponse::Handled;
