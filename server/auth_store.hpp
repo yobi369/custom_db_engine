@@ -47,6 +47,8 @@ public:
                            const std::string& role,
                            const std::vector<DatabaseGrant>& grants = {});
     std::optional<UserRecord> find_user(const std::string& username) const;
+    std::vector<UserRecord> list_users() const;
+    bool set_user_grants(const std::string& username, const std::vector<DatabaseGrant>& grants);
     std::optional<UserRecord> authenticate_password(const std::string& username,
                                                       const std::string& password) const;
     bool set_user_enabled(const std::string& username, bool enabled);
