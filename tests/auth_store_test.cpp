@@ -5,6 +5,10 @@
 #endif
 #include <cassert>
 #include <filesystem>
+#include <fstream>
+#ifndef _WIN32
+#include <sys/stat.h>
+#endif
 #include <iostream>
 #include <stdexcept>
 
@@ -16,6 +20,11 @@ int main() {
     assert(!store.initialized());
     store.initialize();
     assert(store.initialized());
+#ifndef _WIN32
+    struct stat auth_file_info {};
+    assert(::stat(file.c_str(), &auth_file_info) == 0);
+    assert((auth_file_info.st_mode & 0777) == 0600);
+#endif
 
     bool refused_non_admin = false;
     try { (void)store.create_user("firstuser", "long enough password", "read_only"); }
@@ -90,6 +99,29 @@ int main() {
     try { (void)bootstrapped.bootstrap_admin("owner02", "another strong password"); }
     catch (const std::runtime_error&) { bootstrap_refused = true; }
     assert(bootstrap_refused);
+
+    const auto corrupt_file = root / "corrupt.json";
+    {
+        std::ofstream corrupt(corrupt_file, std::ios::binary);
+        corrupt << "{ malformed";
+    }
+    AuthStore corrupt_store(corrupt_file);
+    bool malformed_rejected = false;
+    try { (void)corrupt_store.find_user("owner01"); }
+    catch (const std::runtime_error&) { malformed_rejected = true; }
+    assert(malformed_rejected);
+
+    const auto oversized_file = root / "oversized.json";
+    {
+        std::ofstream oversized(oversized_file, std::ios::binary);
+        const std::string payload(4 * 1024 * 1024 + 1, 'x');
+        oversized.write(payload.data(), static_cast<std::streamsize>(payload.size()));
+    }
+    AuthStore oversized_store(oversized_file);
+    bool oversized_rejected = false;
+    try { (void)oversized_store.find_user("owner01"); }
+    catch (const std::runtime_error&) { oversized_rejected = true; }
+    assert(oversized_rejected);
 
     std::filesystem::remove_all(root);
     std::cout << "Authentication store tests passed\n";
