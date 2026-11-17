@@ -285,8 +285,8 @@ int main(int argc, char** argv) {
     {
         std::ifstream wal(checksum_path + ".wal", std::ios::binary);
         CHECK(static_cast<bool>(wal));
-        const std::string corrupt_wal_after(std::istreambuf_iterator<char>(wal),
-                                            std::istreambuf_iterator<char>());
+        const std::string corrupt_wal_after{std::istreambuf_iterator<char>(wal),
+                                            std::istreambuf_iterator<char>()};
         CHECK(corrupt_wal_after == corrupt_wal_before);
     }
     for (const auto& suffix : {"", ".wal", ".tmp", ".lock"})
