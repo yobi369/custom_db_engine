@@ -65,10 +65,17 @@ int main() {
     assert(store.authenticate_password("reader01", "replacement reader password"));
     const auto fourth = store.issue_token("reader01");
     assert(store.authenticate_token(fourth.token));
-    assert(store.revoke_token_value(fourth.token));
+    assert(!store.change_user_password("reader01", "incorrect current password", "new reader password"));
+    assert(store.change_user_password("reader01", "replacement reader password", "new reader password"));
     assert(!store.authenticate_token(fourth.token));
-    assert(store.set_user_enabled("reader01", false));
     assert(!store.authenticate_password("reader01", "replacement reader password"));
+    assert(store.authenticate_password("reader01", "new reader password"));
+    const auto fifth = store.issue_token("reader01");
+    assert(store.authenticate_token(fifth.token));
+    assert(store.revoke_token_value(fifth.token));
+    assert(!store.authenticate_token(fifth.token));
+    assert(store.set_user_enabled("reader01", false));
+    assert(!store.authenticate_password("reader01", "new reader password"));
     assert(!store.authenticate_token(fourth.token));
 
     AuthStore reopened(file);
