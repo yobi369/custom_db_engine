@@ -365,7 +365,8 @@ bool AuthStore::set_user_password(const std::string& username, const std::string
     return true;
 }
 
-IssuedToken AuthStore::issue_token(const std::string& username, std::chrono::seconds lifetime) {
+IssuedToken AuthStore::issue_token(const std::string& username, std::chrono::seconds lifetime,
+                                  const PasswordVerifier* expected_password) {
     if (lifetime <= std::chrono::seconds::zero() || lifetime > std::chrono::hours(24 * 30))
         throw std::invalid_argument("token lifetime must be between 1 second and 30 days");
     const auto raw = generate_bearer_token();
@@ -373,6 +374,12 @@ IssuedToken AuthStore::issue_token(const std::string& username, std::chrono::sec
     load_locked();
     const auto user = std::find_if(users_.begin(), users_.end(), [&](const UserRecord& u) { return u.username == username; });
     if (user == users_.end() || !user->enabled) throw std::runtime_error("user is unavailable");
+    if (expected_password &&
+        (user->password.algorithm != expected_password->algorithm ||
+         user->password.iterations != expected_password->iterations ||
+         user->password.salt_hex != expected_password->salt_hex ||
+         user->password.verifier_hex != expected_password->verifier_hex))
+        throw AuthPolicyError("credentials changed during login; authenticate again");
     const auto now = unix_seconds(std::chrono::system_clock::now());
     tokens_.erase(std::remove_if(tokens_.begin(), tokens_.end(),
         [&](const TokenRecord& item) { return item.revoked || item.expires_at <= now; }), tokens_.end());
