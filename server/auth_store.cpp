@@ -297,6 +297,12 @@ bool AuthStore::set_user_enabled(const std::string& username, bool enabled) {
     load_locked();
     const auto it = std::find_if(users_.begin(), users_.end(), [&](const UserRecord& u) { return u.username == username; });
     if (it == users_.end()) return false;
+    if (!enabled && it->enabled && it->role == "admin") {
+        const auto active_admins = std::count_if(users_.begin(), users_.end(),
+            [](const UserRecord& item) { return item.enabled && item.role == "admin"; });
+        if (active_admins <= 1)
+            throw std::runtime_error("cannot disable the last enabled administrator");
+    }
     const auto old = it->enabled;
     const auto old_tokens = tokens_;
     it->enabled = enabled;
