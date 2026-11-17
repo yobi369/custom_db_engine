@@ -268,6 +268,48 @@ int main(int argc, char* argv[]) {
         }
     });
 
+    server.Get("/v1/auth/users", [&auth, token_auth_enabled](const httplib::Request&, httplib::Response& response) {
+        if (!token_auth_enabled) return respond_json(response, 503, {{"error", "authentication is not initialized"}});
+        json users = json::array();
+        try {
+            for (const auto& user : auth.list_users()) {
+                json grants = json::array();
+                for (const auto& grant : user.grants)
+                    grants.push_back({{"database", grant.database}, {"permission", grant.permission}});
+                users.push_back({{"username", user.username}, {"role", user.role},
+                                 {"enabled", user.enabled}, {"grants", grants}});
+            }
+            respond_json(response, 200, {{"users", users}});
+        } catch (const std::exception& error) {
+            respond_json(response, 503, {{"error", "authentication store unavailable"}});
+        }
+    });
+
+    server.Put(R"(/v1/auth/users/([A-Za-z0-9_.@-]{3,64})/grants)",
+        [&auth, token_auth_enabled](const httplib::Request& request, httplib::Response& response) {
+            if (!token_auth_enabled) return respond_json(response, 503, {{"error", "authentication is not initialized"}});
+            const auto body = json::parse(request.body, nullptr, false);
+            if (body.is_discarded() || !body.is_object() || !body.contains("grants") ||
+                !body["grants"].is_array() || body["grants"].size() > 1000)
+                return respond_json(response, 400, {{"error", "expected grants array with at most 1000 entries"}});
+            std::vector<customdb::security::DatabaseGrant> grants;
+            for (const auto& item : body["grants"]) {
+                if (!item.is_object() || !item.contains("database") || !item["database"].is_string() ||
+                    !item.contains("permission") || !item["permission"].is_string())
+                    return respond_json(response, 400, {{"error", "each grant requires database and permission strings"}});
+                grants.push_back({item["database"].get<std::string>(), item["permission"].get<std::string>()});
+            }
+            try {
+                if (!auth.set_user_grants(request.matches[1].str(), grants))
+                    return respond_json(response, 404, {{"error", "user not found"}});
+                respond_json(response, 200, {{"status", "grants_updated"}});
+            } catch (const std::invalid_argument& error) {
+                respond_json(response, 400, {{"error", error.what()}});
+            } catch (const std::exception& error) {
+                respond_json(response, 500, {{"error", error.what()}});
+            }
+        });
+
     server.Put(R"(/v1/auth/users/([A-Za-z0-9_.@-]{3,64})/enabled)",
         [&auth, token_auth_enabled](const httplib::Request& request, httplib::Response& response) {
             if (!token_auth_enabled) return respond_json(response, 503, {{"error", "authentication is not initialized"}});
