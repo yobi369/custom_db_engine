@@ -4,6 +4,7 @@
 #include <httplib.h>
 #include <nlohmann/json.hpp>
 
+#include <algorithm>
 #include <cstdlib>
 #include <cstdio>
 #include <filesystem>
@@ -26,6 +27,7 @@ using json = nlohmann::json;
 
 namespace {
 std::mutex engine_mutex;
+bool bearer_auth_active = false;
 const std::regex database_name_pattern("^[a-zA-Z][a-zA-Z0-9_-]{0,62}$");
 
 std::string env_or(const char* key, const std::string& fallback) {
@@ -43,7 +45,7 @@ void respond_json(httplib::Response& response, int status, const json& body) {
 }
 
 bool authorized(const httplib::Request& request, const std::string& api_key) {
-    if (request.has_header("Authorization")) return true;
+    if (bearer_auth_active && request.has_header("Authorization")) return true;
     if (api_key.empty()) return true;
     const auto supplied = request.get_header_value("X-CustomDB-Key");
     if (supplied.size() != api_key.size()) return false;
@@ -123,6 +125,7 @@ int main(int argc, char* argv[]) {
     const auto api_key = env_or("CUSTOMDB_API_KEY", "");
     customdb::security::AuthStore auth(root / "auth" / "auth_store.json");
     const bool token_auth_enabled = auth.initialized();
+    bearer_auth_active = token_auth_enabled;
 
     int port = 7680;
     try {
@@ -220,7 +223,7 @@ int main(int argc, char* argv[]) {
         if (!user) return respond_json(response, 401, {{"error", "invalid username or password"}});
         try {
             const auto issued = auth.issue_token(user->username);
-            respond_json(response, 200, {{"token_type", "Bearer"}, {"access_token", issued.token},
+            respond_json(response, 200, {{"token_type", "Bearer"}, {"access_token", issued.token}, {"token_id", issued.id},
                 {"expires_at", issued.expires_at}, {"user", {{"username", user->username}, {"role", user->role}}}});
         } catch (const std::exception& error) {
             respond_json(response, 500, {{"error", error.what()}});
