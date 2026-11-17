@@ -829,6 +829,13 @@ private:
     }
     bool checkpoint_locked(const json& value) {
         if (!write_snapshot_locked(value)) return false;
+#ifdef CUSTOM_DB_ENGINE_TEST_FAULTS
+        // Fault injection exists only in the dedicated test-library build.
+        // Production builds do not compile or expose this switch.
+        const char* injected_failure = std::getenv("CUSTOMDB_TEST_FAIL_CHECKPOINT_WAL_OPEN");
+        if (injected_failure && std::string(injected_failure) == "1")
+            return fail("Injected test failure before checkpoint WAL truncation");
+#endif
         std::FILE* wal = std::fopen(wal_path().c_str(), "wb");
         if (!wal) return fail("Snapshot saved, but could not truncate WAL");
         const bool flushed = durable_flush(wal);
