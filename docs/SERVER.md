@@ -13,7 +13,7 @@ cmake --build build --parallel
 
 ## Run
 
-Create the first administrator locally before enabling the future token-authenticated API. This command prompts for a username and hidden password confirmation; it refuses to overwrite an existing auth store:
+Create the first administrator locally. This command prompts for a username and hidden password confirmation; it refuses to overwrite an existing auth store:
 
 ```bash
 CUSTOMDB_DATA_DIR=./customdb-data ./build/custom_db_server --bootstrap-admin
@@ -25,9 +25,19 @@ Start the local service:
 CUSTOMDB_HOST=127.0.0.1 CUSTOMDB_PORT=7680 CUSTOMDB_DATA_DIR=./customdb-data ./build/custom_db_server
 ```
 
-The service binds to loopback by default. Binding to a non-loopback interface is refused unless `CUSTOMDB_API_KEY` is set. When configured, send the key in the `X-CustomDB-Key` header. This initial API-key mechanism is a single shared secret, not a user/role system. Use TLS termination in a trusted reverse proxy before exposing the service over an untrusted network.
+The service binds to loopback by default. If no auth store exists, the server retains its legacy mode: `CUSTOMDB_API_KEY` may protect routes with one shared secret, but a loopback deployment with no key is unauthenticated. Bootstrap the administrator before using the service with real data. Once `CUSTOMDB_DATA_DIR/auth/auth_store.json` exists, bearer-token authentication takes over for every route except `GET /health` and `POST /v1/auth/login`; legacy API-key headers do not replace bearer tokens. Non-loopback binding still requires explicit `CUSTOMDB_API_KEY` operator opt-in. Use TLS termination in a trusted reverse proxy before exposing the service over an untrusted network.
 
-## Initial API
+## Authentication API
+
+- `GET /health` — public liveness response.
+- `POST /v1/auth/login` — authenticate with JSON `{"username":"owner","password":"..."}`; returns a bearer access token, token ID, expiry timestamp, and non-secret user summary. Store the access token securely; it is returned only at issuance.
+- `POST /v1/auth/users` — administrator-only account creation. Body includes `username`, `password`, `role` (`admin`, `read_write`, or `read_only`), and optional `grants` array such as `[{"database":"example","permission":"write"}]`.
+- `PUT /v1/auth/users/{username}/enabled` — administrator-only account disable/re-enable using `{"enabled":false}`. Disabling a user revokes that user's existing tokens.
+- `POST /v1/auth/tokens/{token_id}/revoke` — administrator-only token revocation.
+
+When identity mode is active, send `Authorization: Bearer <access_token>`. Administrators can manage all databases. Other users need explicit per-database grants. `read` permits GET/HEAD operations; `write` permits reads and mutations. The `read_only` role is never allowed to mutate data, even if a write grant is accidentally assigned. Database listing/creation and identity administration are administrator-only.
+
+## Database API
 
 - `GET /health` — liveness response.
 - `GET /v1/databases` — list databases.
@@ -56,4 +66,4 @@ Database names are restricted to letters, digits, underscore, and hyphen, and mu
 
 Every engine operation is serialized by a server-wide mutex and opens one engine handle for the duration of the request. This is deliberate: the current engine's exclusive file lock and transaction state do not provide independent concurrent-client transactions. The initial server does not claim multi-writer throughput, transaction isolation between clients, TLS built into the process, distributed operation, or production readiness.
 
-The current HTTP API supports key-value operations, document insertion, equality-filtered document queries and mutations, schema creation, index management, managed backups, integrity checks, and serialized atomic batches. Schema updates, per-client identities and permissions, robust audit logging, native TLS, load/fault testing, and SDKs remain planned work. The multi-user authentication design is documented in [AUTHENTICATION_DESIGN.md](AUTHENTICATION_DESIGN.md), with implementation decisions in [AUTH_IMPLEMENTATION_DECISIONS.md](AUTH_IMPLEMENTATION_DECISIONS.md). OpenSSL-backed password hashing and bearer-token primitives plus a versioned local identity/token store and one-time hidden-terminal administrator bootstrap CLI are implemented and unit-tested on the development branch. They are not yet wired into HTTP routes, and bearer-token middleware and per-route authorization remain outstanding. The shared API-key behavior remains active; do not treat this as a complete authentication system. Keep backups of important data; the underlying engine itself documents its current durability and format limitations.
+The current HTTP API supports key-value operations, document insertion, equality-filtered document queries and mutations, schema creation, index management, managed backups, integrity checks, and serialized atomic batches. Schema updates, robust audit logging, native TLS, login throttling, auth-store crash recovery testing, load/fault testing, and SDKs remain planned work. The multi-user authentication design is documented in [AUTHENTICATION_DESIGN.md](AUTHENTICATION_DESIGN.md), with implementation decisions in [AUTH_IMPLEMENTATION_DECISIONS.md](AUTH_IMPLEMENTATION_DECISIONS.md). Bearer login, user creation, account disable/re-enable, token revocation, and centralized route authorization are implemented on the development branch and covered by HTTP integration tests. This is not yet a production-ready or internet-facing authentication system; use loopback or a trusted TLS reverse proxy and apply operational controls. Keep backups of important data; the underlying engine itself documents its current durability and format limitations.
