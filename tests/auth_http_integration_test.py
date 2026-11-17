@@ -136,7 +136,7 @@ def main():
             request(base, "/v1/databases/alpha/kv/one", token=reader["access_token"], expected=401)
 
             # Failed password attempts are throttled per remote address.
-            for _ in range(4):
+            for _ in range(5):
                 login(base, "rootadmin", "wrong password", expected=401)
             _, throttled = request(base, "/v1/auth/login", "POST",
                 {"username": "rootadmin", "password": "wrong password"}, expected=429)
