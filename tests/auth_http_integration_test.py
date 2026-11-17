@@ -143,9 +143,15 @@ def main():
             request(base, "/v1/databases/alpha/kv/one", token=created["access_token"], expected=401)
             login(base, "newuser01", "a sufficiently long password", expected=401)
             replacement = login(base, "newuser01", "replacement account password")
-            request(base, "/v1/databases/alpha/kv/one", token=replacement["access_token"], expected=200)
-            request(base, "/v1/auth/logout", "POST", token=replacement["access_token"], expected=200)
+            request(base, "/v1/auth/password", "PUT",
+                    {"current_password": "replacement account password", "new_password": "another sufficiently long password"},
+                    token=replacement["access_token"], expected=200)
             request(base, "/v1/databases/alpha/kv/one", token=replacement["access_token"], expected=401)
+            login(base, "newuser01", "replacement account password", expected=401)
+            changed = login(base, "newuser01", "another sufficiently long password")
+            request(base, "/v1/databases/alpha/kv/one", token=changed["access_token"], expected=200)
+            request(base, "/v1/auth/logout", "POST", token=changed["access_token"], expected=200)
+            request(base, "/v1/databases/alpha/kv/one", token=changed["access_token"], expected=401)
             request(base, "/v1/auth/users/writer01/enabled", "PUT", {"enabled": False},
                     token=admin["access_token"], expected=200)
             request(base, "/v1/databases/alpha/kv/one", token=writer["access_token"], expected=401)
