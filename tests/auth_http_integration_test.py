@@ -77,6 +77,18 @@ def main():
                     token=reader["access_token"], expected=403)
             request(base, "/v1/databases/alpha/kv/one", "PUT", {"value": "2"},
                     token=limited["access_token"], expected=403)
+            _, account_list = request(base, "/v1/auth/users", token=admin["access_token"], expected=200)
+            assert all("password" not in account for account in account_list["users"])
+            request(base, "/v1/auth/users/limited01/grants", "PUT",
+                    {"grants": [{"database": "alpha", "permission": "write"}]},
+                    token=admin["access_token"], expected=200)
+            request(base, "/v1/databases/alpha/kv/one", "PUT", {"value": "3"},
+                    token=limited["access_token"], expected=200)
+            request(base, "/v1/auth/users/reader01/grants", "PUT",
+                    {"grants": [{"database": "alpha", "permission": "write"}]},
+                    token=admin["access_token"], expected=200)
+            request(base, "/v1/databases/alpha/kv/one", "PUT", {"value": "4"},
+                    token=reader["access_token"], expected=403)
             request(base, "/v1/databases/beta/kv/one", token=writer["access_token"], expected=403)
             request(base, "/v1/databases", token=reader["access_token"], expected=403)
             request(base, "/v1/auth/users", "POST",
