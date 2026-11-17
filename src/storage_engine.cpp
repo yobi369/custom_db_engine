@@ -549,7 +549,8 @@ public:
         try { replacement = json::parse(json_data); }
         catch (const std::exception& e) { return fail(std::string("Invalid JSON document: ") + e.what()); }
         if (!replacement.is_object()) return fail("Documents must be JSON objects");
-        json& view = in_transaction_ ? transaction_state_ : state_;
+        json next = in_transaction_ ? transaction_state_ : state_;
+        json& view = next;
         const auto schema_it = view["schemas"].find(collection);
         if (schema_it != view["schemas"].end()) {
             std::string validation_error;
@@ -570,13 +571,11 @@ public:
             if (matches) { document = replacement; ++changed; }
         }
         if (changed == 0) return fail("No documents matched the supplied filters");
-        if (in_transaction_) {
-            index_cache_.erase(collection);
-            last_error_.clear();
-            return true;
+        if (in_transaction_) transaction_state_ = std::move(next);
+        else {
+            if (!persist_locked(next)) return false;
+            state_ = std::move(next);
         }
-        json next = state_;
-        if (!persist_locked(next)) return false;
         state_ = std::move(next);
         index_cache_.erase(collection);
         last_error_.clear();
@@ -603,15 +602,12 @@ public:
             return true;
         }), documents.end());
         if (documents.size() == original_size) return fail("No documents matched the supplied filters");
-        if (in_transaction_) {
-            index_cache_.erase(collection);
-            last_error_.clear();
-            return true;
-        }
-        json next = state_;
         if (documents.empty()) next["documents"].erase(collection);
-        if (!persist_locked(next)) return false;
-        state_ = std::move(next);
+        if (in_transaction_) transaction_state_ = std::move(next);
+        else {
+            if (!persist_locked(next)) return false;
+            state_ = std::move(next);
+        }
         index_cache_.erase(collection);
         last_error_.clear();
         return true;
