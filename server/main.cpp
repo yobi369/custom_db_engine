@@ -305,9 +305,11 @@ int main(int argc, char* argv[]) {
         }
         clear_login_failures(remote_address);
         try {
-            const auto issued = auth.issue_token(user->username);
+            const auto issued = auth.issue_token(user->username, std::chrono::hours(24), &user->password);
             respond_json(response, 200, {{"token_type", "Bearer"}, {"access_token", issued.token}, {"token_id", issued.id},
                 {"expires_at", issued.expires_at}, {"user", {{"username", user->username}, {"role", user->role}}}});
+        } catch (const customdb::security::AuthPolicyError&) {
+            respond_json(response, 401, {{"error", "credentials changed during login; retry"}});
         } catch (const std::exception& error) {
             respond_json(response, 500, {{"error", error.what()}});
         }
