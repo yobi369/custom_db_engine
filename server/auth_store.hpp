@@ -3,6 +3,7 @@
 #include "auth_crypto.hpp"
 
 #include <chrono>
+#include <cstdint>
 #include <filesystem>
 #include <mutex>
 #include <optional>
