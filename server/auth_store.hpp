@@ -58,6 +58,7 @@ public:
     std::optional<UserRecord> authenticate_password(const std::string& username,
                                                       const std::string& password) const;
     bool set_user_enabled(const std::string& username, bool enabled);
+    bool set_user_password(const std::string& username, const std::string& password);
 
     IssuedToken issue_token(const std::string& username,
                             std::chrono::seconds lifetime = std::chrono::hours(24));
@@ -65,6 +66,7 @@ public:
         const std::string& token,
         std::chrono::system_clock::time_point now = std::chrono::system_clock::now()) const;
     bool revoke_token(const std::string& token_id);
+    bool revoke_token_value(const std::string& token);
 
 private:
     void load_locked();
