@@ -45,6 +45,12 @@ if(CUSTOM_DB_ENGINE_BUILD_SERVER)
   add_executable(custom_db_server server/main.cpp)
   target_compile_features(custom_db_server PRIVATE cxx_std_17)
   target_link_libraries(custom_db_server PRIVATE CustomDBEngine::custom_db_engine httplib::httplib nlohmann_json::nlohmann_json)
+  if(BUILD_TESTING)
+    find_package(Python3 COMPONENTS Interpreter REQUIRED)
+    add_test(NAME custom_db_server_integration
+      COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/server_integration_test.py $<TARGET_FILE:custom_db_server>)
+    set_tests_properties(custom_db_server_integration PROPERTIES TIMEOUT 30)
+  endif()
 endif()
 
 if(CUSTOM_DB_ENGINE_BUILD_BENCHMARKS)
