@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <fstream>
 #include <stdexcept>
+#include <utility>
 
 #ifndef _WIN32
 #include <fcntl.h>
