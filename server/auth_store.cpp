@@ -256,6 +256,35 @@ std::optional<UserRecord> AuthStore::find_user(const std::string& username) cons
     return *it;
 }
 
+std::vector<UserRecord> AuthStore::list_users() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    const_cast<AuthStore*>(this)->load_locked();
+    return users_;
+}
+
+bool AuthStore::set_user_grants(const std::string& username,
+                                const std::vector<DatabaseGrant>& grants) {
+    if (grants.size() > kMaximumGrants) throw std::invalid_argument("too many database grants");
+    for (std::size_t i = 0; i < grants.size(); ++i) {
+        const auto& grant = grants[i];
+        if (!valid_database_name(grant.database) ||
+            (grant.permission != "read" && grant.permission != "write"))
+            throw std::invalid_argument("invalid database grant");
+        for (std::size_t j = i + 1; j < grants.size(); ++j)
+            if (grants[j].database == grant.database)
+                throw std::invalid_argument("duplicate database grant");
+    }
+    std::lock_guard<std::mutex> lock(mutex_);
+    load_locked();
+    const auto user = std::find_if(users_.begin(), users_.end(),
+        [&](const UserRecord& item) { return item.username == username; });
+    if (user == users_.end()) return false;
+    const auto previous = user->grants;
+    user->grants = grants;
+    try { persist_locked(); } catch (...) { user->grants = previous; throw; }
+    return true;
+}
+
 std::optional<UserRecord> AuthStore::authenticate_password(const std::string& username,
                                                             const std::string& password) const {
     const auto user = find_user(username);
