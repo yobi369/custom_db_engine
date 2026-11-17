@@ -195,6 +195,13 @@ int main(int argc, char* argv[]) {
             return httplib::Server::HandlerResponse::Handled;
         }
 
+        static const std::regex restore_route("^/v1/databases/[A-Za-z][A-Za-z0-9_-]{0,62}/backups/[A-Za-z0-9_-]{1,64}/restore$");
+        if (request.method == "POST" && std::regex_match(request.path, restore_route)) {
+            respond_json(response, 403, {{"error", "administrator permission required for restore"}});
+            response.set_header("Connection", "close");
+            return httplib::Server::HandlerResponse::Handled;
+        }
+
         static const std::regex database_route("^/v1/databases/([A-Za-z][A-Za-z0-9_-]{0,62})(?:/|$)");
         std::smatch match;
         if (std::regex_search(request.path, match, database_route)) {
