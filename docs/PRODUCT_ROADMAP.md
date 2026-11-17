@@ -49,7 +49,7 @@ The immediate deployment target is a single host with local persistent storage. 
 
 ### 2. Storage correctness and recovery
 - Define and test WAL replay, checkpoint ordering and crash recovery.
-- Add fault injection around writes, snapshots, backup, restore and atomic auth-store replacement.
+- Add fault injection around writes, snapshots, backup, restore and atomic auth-store replacement. A separate-process abrupt-exit test now verifies 70 committed writes across the 64-record checkpoint boundary; targeted filesystem fault injection and power-loss simulation remain future work.
 - Specify durability guarantees and filesystem assumptions.
 - Add format migration/version compatibility tests and recovery tooling.
 - Revisit storage format only with migration tests and compatibility policy.
