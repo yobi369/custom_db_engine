@@ -14,7 +14,14 @@
 #ifdef _WIN32
 #include <conio.h>
 #include <io.h>
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
 #else
+#include <fcntl.h>
+#include <sys/file.h>
+#include <sys/stat.h>
 #include <termios.h>
 #include <unistd.h>
 #endif
@@ -29,6 +36,50 @@ namespace fs = std::filesystem;
 using json = nlohmann::json;
 
 namespace {
+class ServerInstanceLock {
+public:
+    explicit ServerInstanceLock(const fs::path& path) {
+#ifdef _WIN32
+        handle_ = CreateFileW(path.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr,
+                              OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (handle_ == INVALID_HANDLE_VALUE)
+            throw std::runtime_error("another CustomDB process is already using this data directory");
+#else
+        descriptor_ = ::open(path.c_str(), O_CREAT | O_RDWR
+#ifdef O_CLOEXEC
+                             | O_CLOEXEC
+#endif
+                             , S_IRUSR | S_IWUSR);
+        if (descriptor_ < 0)
+            throw std::runtime_error("cannot open CustomDB data-directory lock file");
+        if (::fchmod(descriptor_, S_IRUSR | S_IWUSR) != 0 ||
+            ::flock(descriptor_, LOCK_EX | LOCK_NB) != 0) {
+            ::close(descriptor_);
+            descriptor_ = -1;
+            throw std::runtime_error("another CustomDB process is already using this data directory");
+        }
+#endif
+    }
+
+    ~ServerInstanceLock() {
+#ifdef _WIN32
+        if (handle_ != INVALID_HANDLE_VALUE) CloseHandle(handle_);
+#else
+        if (descriptor_ >= 0) ::close(descriptor_);
+#endif
+    }
+
+    ServerInstanceLock(const ServerInstanceLock&) = delete;
+    ServerInstanceLock& operator=(const ServerInstanceLock&) = delete;
+
+private:
+#ifdef _WIN32
+    HANDLE handle_ = INVALID_HANDLE_VALUE;
+#else
+    int descriptor_ = -1;
+#endif
+};
+
 std::mutex engine_mutex;
 bool bearer_auth_active = false;
 std::mutex login_attempts_mutex;
@@ -147,7 +198,25 @@ int main(int argc, char* argv[]) {
     const auto host = env_or("CUSTOMDB_HOST", "127.0.0.1");
     const auto port_text = env_or("CUSTOMDB_PORT", "7680");
     const auto root = fs::absolute(env_or("CUSTOMDB_DATA_DIR", "./customdb-data")).lexically_normal();
-    if (argc == 2 && std::string(argv[1]) == "--bootstrap-admin") {
+    const bool bootstrap_mode = argc == 2 && std::string(argv[1]) == "--bootstrap-admin";
+    if (argc != 1 && !bootstrap_mode) {
+        std::cerr << "Usage: custom_db_server [--bootstrap-admin]\n";
+        return 2;
+    }
+    try {
+        fs::create_directories(root);
+    } catch (const std::exception& error) {
+        std::cerr << "Cannot create database directory: " << error.what() << '\n';
+        return 2;
+    }
+    std::unique_ptr<ServerInstanceLock> instance_lock;
+    try {
+        instance_lock = std::make_unique<ServerInstanceLock>(root / ".customdb-server.lock");
+    } catch (const std::exception& error) {
+        std::cerr << "Cannot acquire data-directory lock: " << error.what() << '\n';
+        return 2;
+    }
+    if (bootstrap_mode) {
         try {
             std::string username;
             std::cout << "Administrator username (3-64 characters): " << std::flush;
@@ -163,10 +232,6 @@ int main(int argc, char* argv[]) {
             std::cerr << "Administrator bootstrap failed: " << error.what() << '\n';
             return 2;
         }
-    }
-    if (argc != 1) {
-        std::cerr << "Usage: custom_db_server [--bootstrap-admin]\n";
-        return 2;
     }
     const auto api_key = env_or("CUSTOMDB_API_KEY", "");
     const bool allow_non_loopback = env_or("CUSTOMDB_ALLOW_NON_LOOPBACK", "0") == "1";
@@ -187,13 +252,6 @@ int main(int argc, char* argv[]) {
 
     if (host != "127.0.0.1" && host != "localhost" && host != "::1" && !allow_non_loopback) {
         std::cerr << "Refusing non-loopback bind without CUSTOMDB_ALLOW_NON_LOOPBACK=1.\n";
-        return 2;
-    }
-
-    try {
-        fs::create_directories(root);
-    } catch (const std::exception& error) {
-        std::cerr << "Cannot create database directory: " << error.what() << '\n';
         return 2;
     }
 
