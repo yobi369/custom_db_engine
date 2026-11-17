@@ -53,7 +53,13 @@ int main() {
     assert(!store.authenticate_token(second.token, std::chrono::system_clock::now() + std::chrono::seconds(10)));
     const auto third = store.issue_token("reader01");
     assert(store.authenticate_token(third.token));
+    const auto verified_before_reset = store.authenticate_password("reader01", "reader password");
+    assert(verified_before_reset);
     assert(store.set_user_password("reader01", "replacement reader password"));
+    bool stale_login_rejected = false;
+    try { (void)store.issue_token("reader01", std::chrono::hours(24), &verified_before_reset->password); }
+    catch (const AuthPolicyError&) { stale_login_rejected = true; }
+    assert(stale_login_rejected);
     assert(!store.authenticate_token(third.token));
     assert(!store.authenticate_password("reader01", "reader password"));
     assert(store.authenticate_password("reader01", "replacement reader password"));
