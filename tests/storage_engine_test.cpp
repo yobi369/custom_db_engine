@@ -251,9 +251,9 @@ int main(int argc, char** argv) {
     std::filesystem::remove(corrupt_path + ".tmp", ec);
     std::filesystem::remove(corrupt_path + ".lock", ec);
 
-    // A complete WAL record with a bad checksum must fail closed. The valid
-    // committed prefix remains readable, and recovery must not truncate or rewrite
-    // the corrupt complete record as though it were an incomplete tail.
+    // A complete WAL record with a bad checksum must fail closed. Do not expose
+    // partially replayed state through a handle whose recovery failed, and do not
+    // truncate or rewrite the corrupt complete record as an incomplete tail.
     const std::string checksum_path = "storage_engine_checksum_mismatch.json";
     for (const auto& suffix : {"", ".wal", ".tmp", ".lock"})
         std::filesystem::remove(checksum_path + suffix, ec);
@@ -279,7 +279,8 @@ int main(int argc, char** argv) {
     {
         StorageEngine damaged(checksum_path);
         CHECK(damaged.get_last_error().find("checksum mismatch") != std::string::npos);
-        CHECK(damaged.read_data("safe") == "committed-before-corruption");
+        CHECK(damaged.read_data("safe").empty());
+        CHECK(damaged.get_last_error().find("checksum mismatch") != std::string::npos);
         CHECK(!damaged.write_data("unsafe", "must-not-commit"));
     }
     {
