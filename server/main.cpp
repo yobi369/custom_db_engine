@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cctype>
 #include <cstdlib>
 #include <cstdio>
 #include <filesystem>
@@ -211,8 +212,14 @@ int main(int argc, char* argv[]) {
             return httplib::Server::HandlerResponse::Unhandled;
 
         const auto authorization = request.get_header_value("Authorization");
-        constexpr const char* prefix = "Bearer ";
-        if (authorization.rfind(prefix, 0) != 0 || authorization.size() <= 7) {
+        if (authorization.size() <= 7 ||
+            std::tolower(static_cast<unsigned char>(authorization[0])) != 'b' ||
+            std::tolower(static_cast<unsigned char>(authorization[1])) != 'e' ||
+            std::tolower(static_cast<unsigned char>(authorization[2])) != 'a' ||
+            std::tolower(static_cast<unsigned char>(authorization[3])) != 'r' ||
+            std::tolower(static_cast<unsigned char>(authorization[4])) != 'e' ||
+            std::tolower(static_cast<unsigned char>(authorization[5])) != 'r' ||
+            authorization[6] != ' ') {
             respond_json(response, 401, {{"error", "bearer token required"}});
             response.set_header("WWW-Authenticate", "Bearer");
             response.set_header("Connection", "close");
