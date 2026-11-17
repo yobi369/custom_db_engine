@@ -5,6 +5,7 @@
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
+#include <chrono>
 #include <cstdlib>
 #include <cstdio>
 #include <filesystem>
@@ -21,6 +22,7 @@
 #include <mutex>
 #include <regex>
 #include <string>
+#include <unordered_map>
 
 namespace fs = std::filesystem;
 using json = nlohmann::json;
@@ -28,6 +30,49 @@ using json = nlohmann::json;
 namespace {
 std::mutex engine_mutex;
 bool bearer_auth_active = false;
+std::mutex login_attempts_mutex;
+struct LoginAttemptWindow {
+    std::chrono::steady_clock::time_point started;
+    unsigned int failures = 0;
+};
+std::unordered_map<std::string, LoginAttemptWindow> login_attempts;
+constexpr unsigned int kLoginFailureLimit = 5;
+constexpr auto kLoginWindow = std::chrono::minutes(1);
+
+bool login_is_limited(const std::string& remote_address) {
+    std::lock_guard<std::mutex> lock(login_attempts_mutex);
+    const auto now = std::chrono::steady_clock::now();
+    auto it = login_attempts.find(remote_address);
+    if (it == login_attempts.end()) return false;
+    if (now - it->second.started >= kLoginWindow) {
+        login_attempts.erase(it);
+        return false;
+    }
+    return it->second.failures >= kLoginFailureLimit;
+}
+
+void record_login_failure(const std::string& remote_address) {
+    std::lock_guard<std::mutex> lock(login_attempts_mutex);
+    const auto now = std::chrono::steady_clock::now();
+    auto it = login_attempts.find(remote_address);
+    if (it == login_attempts.end()) {
+        if (login_attempts.size() >= 4096) {
+            auto oldest = login_attempts.begin();
+            for (auto candidate = login_attempts.begin(); candidate != login_attempts.end(); ++candidate)
+                if (candidate->second.started < oldest->second.started) oldest = candidate;
+            login_attempts.erase(oldest);
+        }
+        it = login_attempts.emplace(remote_address, LoginAttemptWindow{now, 0}).first;
+    } else if (now - it->second.started >= kLoginWindow) {
+        it->second = LoginAttemptWindow{now, 0};
+    }
+    ++it->second.failures;
+}
+
+void clear_login_failures(const std::string& remote_address) {
+    std::lock_guard<std::mutex> lock(login_attempts_mutex);
+    login_attempts.erase(remote_address);
+}
 const std::regex database_name_pattern("^[a-zA-Z][a-zA-Z0-9_-]{0,62}$");
 
 std::string env_or(const char* key, const std::string& fallback) {
@@ -233,6 +278,11 @@ int main(int argc, char* argv[]) {
                                                                httplib::Response& response) {
         if (!token_auth_enabled)
             return respond_json(response, 503, {{"error", "administrator bootstrap is required before token login"}});
+        const auto remote_address = request.remote_addr;
+        if (login_is_limited(remote_address)) {
+            response.set_header("Retry-After", "60");
+            return respond_json(response, 429, {{"error", "too many failed login attempts; try again later"}});
+        }
         const auto body = json::parse(request.body, nullptr, false);
         if (body.is_discarded() || !body.is_object() || !body.contains("username") ||
             !body["username"].is_string() || !body.contains("password") || !body["password"].is_string())
@@ -241,7 +291,11 @@ int main(int argc, char* argv[]) {
         try { user = auth.authenticate_password(body["username"].get<std::string>(),
                                                  body["password"].get<std::string>()); }
         catch (const std::exception&) { return respond_json(response, 503, {{"error", "authentication store unavailable"}}); }
-        if (!user) return respond_json(response, 401, {{"error", "invalid username or password"}});
+        if (!user) {
+            record_login_failure(remote_address);
+            return respond_json(response, 401, {{"error", "invalid username or password"}});
+        }
+        clear_login_failures(remote_address);
         try {
             const auto issued = auth.issue_token(user->username);
             respond_json(response, 200, {{"token_type", "Bearer"}, {"access_token", issued.token}, {"token_id", issued.id},
