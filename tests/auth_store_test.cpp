@@ -17,6 +17,11 @@ int main() {
     store.initialize();
     assert(store.initialized());
 
+    bool refused_non_admin = false;
+    try { (void)store.create_user("firstuser", "password", "read_only"); }
+    catch (const std::runtime_error&) { refused_non_admin = true; }
+    assert(refused_non_admin);
+
     bool refused_overwrite = false;
     try { store.initialize(); } catch (const std::runtime_error&) { refused_overwrite = true; }
     assert(refused_overwrite);
@@ -41,6 +46,7 @@ int main() {
 
     const auto second = store.issue_token("reader01");
     assert(store.authenticate_token(second.token));
+    assert(!store.authenticate_token(second.token, std::chrono::system_clock::now() + std::chrono::seconds(2)));
     assert(store.set_user_enabled("reader01", false));
     assert(!store.authenticate_password("reader01", "reader password"));
     assert(!store.authenticate_token(second.token));
