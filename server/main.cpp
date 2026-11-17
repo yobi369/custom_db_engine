@@ -168,6 +168,7 @@ int main(int argc, char* argv[]) {
         return 2;
     }
     const auto api_key = env_or("CUSTOMDB_API_KEY", "");
+    const bool allow_non_loopback = env_or("CUSTOMDB_ALLOW_NON_LOOPBACK", "0") == "1";
     customdb::security::AuthStore auth(root / "auth" / "auth_store.json");
     const bool token_auth_enabled = auth.initialized();
     bearer_auth_active = token_auth_enabled;
@@ -183,8 +184,8 @@ int main(int argc, char* argv[]) {
         return 2;
     }
 
-    if (host != "127.0.0.1" && host != "localhost" && host != "::1" && api_key.empty()) {
-        std::cerr << "Refusing non-loopback bind without CUSTOMDB_API_KEY.\n";
+    if (host != "127.0.0.1" && host != "localhost" && host != "::1" && !allow_non_loopback) {
+        std::cerr << "Refusing non-loopback bind without CUSTOMDB_ALLOW_NON_LOOPBACK=1.\n";
         return 2;
     }
 
