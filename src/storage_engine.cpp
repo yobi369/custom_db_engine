@@ -810,6 +810,15 @@ private:
             fs::remove(temporary, cleanup_ec);
             return fail("Failed to write and durably flush database snapshot");
         }
+#ifdef CUSTOM_DB_ENGINE_TEST_FAULTS
+        // Isolated fault injection: fail before replacing the published snapshot.
+        const char* publish_failure = std::getenv("CUSTOMDB_TEST_FAIL_SNAPSHOT_PUBLISH");
+        if (publish_failure && std::string(publish_failure) == "1") {
+            std::error_code cleanup_ec;
+            fs::remove(temporary, cleanup_ec);
+            return fail("Injected test failure before snapshot publication");
+        }
+#endif
 #ifdef _WIN32
         if (!MoveFileExA(temporary.string().c_str(), target.string().c_str(),
                          MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
