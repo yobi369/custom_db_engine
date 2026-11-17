@@ -50,7 +50,7 @@ void require_crypto_success(int result, const char* operation) {
 } // namespace
 
 PasswordVerifier hash_password(const std::string& password) {
-    if (password.empty()) throw std::invalid_argument("password must not be empty");
+    if (password.size() < 12) throw std::invalid_argument("password must contain at least 12 bytes");
     if (password.size() > kMaximumPasswordBytes)
         throw std::invalid_argument("password exceeds the 1024-byte limit");
     std::array<unsigned char, kSaltBytes> salt{};
@@ -67,7 +67,7 @@ PasswordVerifier hash_password(const std::string& password) {
 }
 
 bool verify_password(const std::string& password, const PasswordVerifier& stored) {
-    if (password.empty() || password.size() > kMaximumPasswordBytes || stored.algorithm != "pbkdf2-hmac-sha256" ||
+    if (password.size() < 12 || password.size() > kMaximumPasswordBytes || stored.algorithm != "pbkdf2-hmac-sha256" ||
         stored.iterations < 100000 || stored.iterations > 2000000) return false;
     std::array<unsigned char, kSaltBytes> salt{};
     std::array<unsigned char, kDerivedBytes> expected{};
