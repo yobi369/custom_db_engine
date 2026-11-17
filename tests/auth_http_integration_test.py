@@ -65,6 +65,8 @@ def main():
                 raise TimeoutError("CustomDB auth server did not become ready")
 
             request(base, "/v1/databases", expected=401)
+            request(base, "/v1/databases", token="not-a-valid-token", expected=401)
+            request(base, "/v1/databases?access_token=not-a-valid-token", expected=401)
             login(base, "rootadmin", "wrong password", expected=401)
             admin = login(base, "rootadmin", "administrator password 123")
             writer = login(base, "writer01", "writer password 123")
@@ -116,6 +118,13 @@ def main():
             request(base, f"/v1/auth/tokens/{reader['token_id']}/revoke", "POST",
                     token=admin["access_token"], expected=200)
             request(base, "/v1/databases/alpha/kv/one", token=reader["access_token"], expected=401)
+
+            # Failed password attempts are throttled per remote address.
+            for _ in range(4):
+                login(base, "rootadmin", "wrong password", expected=401)
+            _, throttled = request(base, "/v1/auth/login", "POST",
+                {"username": "rootadmin", "password": "wrong password"}, expected=429)
+            assert "too many" in throttled["error"]
             print("CustomDB bearer authentication and authorization matrix passed")
         finally:
             process.terminate()
