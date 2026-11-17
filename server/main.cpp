@@ -238,7 +238,7 @@ int main(int argc, char* argv[]) {
             response.set_header("Connection", "close");
             return httplib::Server::HandlerResponse::Handled;
         }
-        if (principal->role == "admin")
+        if (principal->role == "admin" || request.path == "/v1/auth/logout")
             return httplib::Server::HandlerResponse::Unhandled;
 
         if (request.path == "/v1/databases" || request.path == "/v1/auth/users" ||
@@ -403,6 +403,31 @@ int main(int argc, char* argv[]) {
                 respond_json(response, 500, {{"error", error.what()}});
             }
         });
+
+    server.Put(R"(/v1/auth/users/([A-Za-z0-9_.@-]{3,64})/password)",
+        [&auth, token_auth_enabled](const httplib::Request& request, httplib::Response& response) {
+            if (!token_auth_enabled) return respond_json(response, 503, {{"error", "authentication is not initialized"}});
+            const auto body = json::parse(request.body, nullptr, false);
+            if (body.is_discarded() || !body.is_object() || !body.contains("password") ||
+                !body["password"].is_string())
+                return respond_json(response, 400, {{"error", "expected string field 'password'"}});
+            try {
+                if (!auth.set_user_password(request.matches[1].str(), body["password"].get<std::string>()))
+                    return respond_json(response, 404, {{"error", "user not found"}});
+                respond_json(response, 200, {{"status", "password_updated"}, {"sessions_revoked", true}});
+            } catch (const std::invalid_argument& error) {
+                respond_json(response, 400, {{"error", error.what()}});
+            } catch (const std::exception& error) {
+                respond_json(response, 500, {{"error", error.what()}});
+            }
+        });
+
+    server.Post("/v1/auth/logout", [&auth](const httplib::Request& request, httplib::Response& response) {
+        const auto authorization = request.get_header_value("Authorization");
+        if (authorization.size() <= 7 || !auth.revoke_token_value(authorization.substr(7)))
+            return respond_json(response, 401, {{"error", "session is no longer active"}});
+        respond_json(response, 200, {{"status", "logged_out"}});
+    });
 
     server.Post(R"(/v1/auth/tokens/([a-f0-9]{32})/revoke)",
         [&auth, token_auth_enabled](const httplib::Request& request, httplib::Response& response) {
