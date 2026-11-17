@@ -41,6 +41,8 @@ int main() {
     const auto digest = digest_bearer_token(token);
     assert(digest.size() == 64);
     assert(verify_bearer_token(token, digest));
+    assert(verify_bearer_token_digest(digest, digest));
+    assert(!verify_bearer_token_digest(digest, digest_bearer_token("different token")));
     assert(!verify_bearer_token(token + "x", digest));
     assert(!verify_bearer_token("different-token", digest));
     assert(!verify_bearer_token(token, "invalid"));
