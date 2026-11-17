@@ -457,7 +457,7 @@ int main(int argc, char* argv[]) {
         }
     });
 
-    server.Get("/v1/auth/users", [&auth, &audit, token_auth_enabled](const httplib::Request&, httplib::Response& response) {
+    server.Get("/v1/auth/users", [&auth, &audit, token_auth_enabled](const httplib::Request& request, httplib::Response& response) {
         if (!token_auth_enabled) return respond_json(response, 503, {{"error", "authentication is not initialized"}});
         json users = json::array();
         try {
