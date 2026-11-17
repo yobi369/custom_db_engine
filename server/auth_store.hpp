@@ -8,10 +8,16 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <stdexcept>
 #include <utility>
 #include <vector>
 
 namespace customdb::security {
+
+class AuthPolicyError : public std::runtime_error {
+public:
+    using std::runtime_error::runtime_error;
+};
 
 struct DatabaseGrant {
     std::string database;
