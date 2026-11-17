@@ -56,6 +56,15 @@ if(CUSTOM_DB_ENGINE_BUILD_SERVER)
     target_compile_features(auth_store_test PRIVATE cxx_std_17)
     target_link_libraries(auth_store_test PRIVATE nlohmann_json::nlohmann_json OpenSSL::Crypto)
     add_test(NAME auth_store_test COMMAND auth_store_test)
+
+    add_executable(auth_http_fixture tests/auth_http_fixture.cpp server/auth_store.cpp server/auth_crypto.cpp)
+    target_compile_features(auth_http_fixture PRIVATE cxx_std_17)
+    target_link_libraries(auth_http_fixture PRIVATE nlohmann_json::nlohmann_json OpenSSL::Crypto)
+    find_package(Python3 COMPONENTS Interpreter REQUIRED)
+    add_test(NAME auth_http_integration
+      COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/auth_http_integration_test.py
+              $<TARGET_FILE:custom_db_server> $<TARGET_FILE:auth_http_fixture>)
+    set_tests_properties(auth_http_integration PROPERTIES TIMEOUT 45)
   endif()
   if(BUILD_TESTING)
     find_package(Python3 COMPONENTS Interpreter REQUIRED)
