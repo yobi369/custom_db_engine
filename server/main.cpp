@@ -1,4 +1,5 @@
 #include "storage_engine.h"
+#include "auth_store.hpp"
 
 #include <httplib.h>
 #include <nlohmann/json.hpp>
@@ -6,6 +7,14 @@
 #include <cstdlib>
 #include <filesystem>
 #include <iostream>
+#include <limits>
+#ifdef _WIN32
+#include <conio.h>
+#include <io.h>
+#else
+#include <termios.h>
+#include <unistd.h>
+#endif
 #include <map>
 #include <memory>
 #include <mutex>
@@ -46,12 +55,70 @@ bool authorized(const httplib::Request& request, const std::string& api_key) {
 fs::path database_path(const fs::path& root, const std::string& name) {
     return root / (name + ".cdb.json");
 }
+
+std::string read_password_hidden(const std::string& prompt) {
+#ifdef _WIN32
+    if (!_isatty(_fileno(stdin))) throw std::runtime_error("administrator bootstrap requires an interactive terminal");
+#else
+    if (!::isatty(STDIN_FILENO)) throw std::runtime_error("administrator bootstrap requires an interactive terminal");
+#endif
+    std::cout << prompt << std::flush;
+#ifdef _WIN32
+    std::string password;
+    for (;;) {
+        const int ch = _getch();
+        if (ch == '\\r' || ch == '\\n') break;
+        if (ch == 3) throw std::runtime_error("password input cancelled");
+        if (ch == 8) { if (!password.empty()) password.pop_back(); continue; }
+        if (ch >= 32 && ch <= 126 && password.size() < 1024) password.push_back(static_cast<char>(ch));
+    }
+    std::cout << '\\n';
+    return password;
+#else
+    termios original{};
+    if (tcgetattr(STDIN_FILENO, &original) != 0)
+        throw std::runtime_error("cannot read terminal settings");
+    termios hidden = original;
+    hidden.c_lflag &= static_cast<tcflag_t>(~ECHO);
+    if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &hidden) != 0)
+        throw std::runtime_error("cannot disable terminal echo");
+    std::string password;
+    const bool read_ok = static_cast<bool>(std::getline(std::cin, password));
+    const int restore_result = tcsetattr(STDIN_FILENO, TCSAFLUSH, &original);
+    std::cout << '\\n';
+    if (restore_result != 0) throw std::runtime_error("cannot restore terminal settings");
+    if (!read_ok) throw std::runtime_error("password input failed");
+    if (password.size() > 1024) throw std::runtime_error("password exceeds 1024 bytes");
+    return password;
+#endif
+}
 }
 
-int main() {
+int main(int argc, char* argv[]) {
     const auto host = env_or("CUSTOMDB_HOST", "127.0.0.1");
     const auto port_text = env_or("CUSTOMDB_PORT", "7680");
     const auto root = fs::absolute(env_or("CUSTOMDB_DATA_DIR", "./customdb-data")).lexically_normal();
+    if (argc == 2 && std::string(argv[1]) == "--bootstrap-admin") {
+        try {
+            std::string username;
+            std::cout << "Administrator username (3-64 characters): " << std::flush;
+            if (!std::getline(std::cin, username)) throw std::runtime_error("username input failed");
+            const auto password = read_password_hidden("Administrator password (minimum 12 characters): ");
+            const auto confirmation = read_password_hidden("Confirm administrator password: ");
+            if (password != confirmation) throw std::runtime_error("passwords do not match");
+            customdb::security::AuthStore auth(root / "auth" / "auth_store.json");
+            auth.bootstrap_admin(username, password);
+            std::cout << "Administrator account created in " << (root / "auth" / "auth_store.json") << '.\\n';
+            return 0;
+        } catch (const std::exception& error) {
+            std::cerr << "Administrator bootstrap failed: " << error.what() << '\\n';
+            return 2;
+        }
+    }
+    if (argc != 1) {
+        std::cerr << "Usage: custom_db_server [--bootstrap-admin]\\n";
+        return 2;
+    }
     const auto api_key = env_or("CUSTOMDB_API_KEY", "");
 
     int port = 7680;
