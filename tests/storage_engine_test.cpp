@@ -251,6 +251,47 @@ int main(int argc, char** argv) {
     std::filesystem::remove(corrupt_path + ".tmp", ec);
     std::filesystem::remove(corrupt_path + ".lock", ec);
 
+    // A complete WAL record with a bad checksum must fail closed. The valid
+    // committed prefix remains readable, and recovery must not truncate or rewrite
+    // the corrupt complete record as though it were an incomplete tail.
+    const std::string checksum_path = "storage_engine_checksum_mismatch.json";
+    for (const auto& suffix : {"", ".wal", ".tmp", ".lock"})
+        std::filesystem::remove(checksum_path + suffix, ec);
+    {
+        StorageEngine db(checksum_path);
+        CHECK(db.write_data("safe", "committed-before-corruption"));
+    }
+    {
+        std::ofstream wal(checksum_path + ".wal", std::ios::binary | std::ios::app);
+        CHECK(static_cast<bool>(wal));
+        const std::string payload =
+            R"({"format_version":1,"generation":2,"kv":{},"documents":{},"schemas":{},"indexes":[]})";
+        wal << "2 0000000000000000 " << payload << "\\n";
+        CHECK(static_cast<bool>(wal));
+    }
+    std::string corrupt_wal_before;
+    {
+        std::ifstream wal(checksum_path + ".wal", std::ios::binary);
+        CHECK(static_cast<bool>(wal));
+        corrupt_wal_before.assign(std::istreambuf_iterator<char>(wal),
+                                  std::istreambuf_iterator<char>());
+    }
+    {
+        StorageEngine damaged(checksum_path);
+        CHECK(damaged.get_last_error().find("checksum mismatch") != std::string::npos);
+        CHECK(damaged.read_data("safe") == "committed-before-corruption");
+        CHECK(!damaged.write_data("unsafe", "must-not-commit"));
+    }
+    {
+        std::ifstream wal(checksum_path + ".wal", std::ios::binary);
+        CHECK(static_cast<bool>(wal));
+        const std::string corrupt_wal_after(std::istreambuf_iterator<char>(wal),
+                                            std::istreambuf_iterator<char>());
+        CHECK(corrupt_wal_after == corrupt_wal_before);
+    }
+    for (const auto& suffix : {"", ".wal", ".tmp", ".lock"})
+        std::filesystem::remove(checksum_path + suffix, ec);
+
     const std::string malformed_snapshot = "storage_engine_malformed_snapshot.json";
     { std::ofstream snapshot(malformed_snapshot, std::ios::binary); snapshot << R"({"format_version":1,"generation":0,"kv":{"unsafe":42},"documents":{},"schemas":{},"indexes":[]})"; }
     {
