@@ -390,6 +390,8 @@ int main(int argc, char* argv[]) {
                 if (!auth.set_user_enabled(request.matches[1].str(), body["enabled"].get<bool>()))
                     return respond_json(response, 404, {{"error", "user not found"}});
                 respond_json(response, 200, {{"status", "updated"}});
+            } catch (const customdb::security::AuthPolicyError& error) {
+                respond_json(response, 409, {{"error", error.what()}});
             } catch (const std::exception& error) {
                 respond_json(response, 500, {{"error", error.what()}});
             }
