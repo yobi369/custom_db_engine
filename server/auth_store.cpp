@@ -296,7 +296,14 @@ bool AuthStore::set_user_grants(const std::string& username,
 std::optional<UserRecord> AuthStore::authenticate_password(const std::string& username,
                                                             const std::string& password) const {
     const auto user = find_user(username);
-    if (!user || !user->enabled || !verify_password(password, user->password)) return std::nullopt;
+    if (!user) {
+        // Match the expensive KDF path for unknown usernames to reduce account enumeration.
+        static const PasswordVerifier dummy = hash_password("CustomDB invalid account timing padding");
+        (void)verify_password(password, dummy);
+        return std::nullopt;
+    }
+    const bool password_matches = verify_password(password, user->password);
+    if (!user->enabled || !password_matches) return std::nullopt;
     return user;
 }
 
@@ -345,8 +352,10 @@ std::optional<UserRecord> AuthStore::authenticate_token(const std::string& token
     std::lock_guard<std::mutex> lock(mutex_);
     const_cast<AuthStore*>(this)->load_locked();
     const auto timestamp = unix_seconds(now);
+    const auto candidate_digest = digest_bearer_token(token);
     const auto record = std::find_if(tokens_.begin(), tokens_.end(), [&](const TokenRecord& t) {
-        return !t.revoked && t.expires_at > timestamp && verify_bearer_token(token, t.digest);
+        return !t.revoked && t.expires_at > timestamp &&
+               verify_bearer_token_digest(candidate_digest, t.digest);
     });
     if (record == tokens_.end()) return std::nullopt;
     const auto user = std::find_if(users_.begin(), users_.end(), [&](const UserRecord& u) {
