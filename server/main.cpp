@@ -67,12 +67,12 @@ std::string read_password_hidden(const std::string& prompt) {
     std::string password;
     for (;;) {
         const int ch = _getch();
-        if (ch == '\\r' || ch == '\\n') break;
+        if (ch == '\r' || ch == '\n') break;
         if (ch == 3) throw std::runtime_error("password input cancelled");
         if (ch == 8) { if (!password.empty()) password.pop_back(); continue; }
         if (ch >= 32 && ch <= 126 && password.size() < 1024) password.push_back(static_cast<char>(ch));
     }
-    std::cout << '\\n';
+    std::cout << '\n';
     return password;
 #else
     termios original{};
@@ -85,7 +85,7 @@ std::string read_password_hidden(const std::string& prompt) {
     std::string password;
     const bool read_ok = static_cast<bool>(std::getline(std::cin, password));
     const int restore_result = tcsetattr(STDIN_FILENO, TCSAFLUSH, &original);
-    std::cout << '\\n';
+    std::cout << '\n';
     if (restore_result != 0) throw std::runtime_error("cannot restore terminal settings");
     if (!read_ok) throw std::runtime_error("password input failed");
     if (password.size() > 1024) throw std::runtime_error("password exceeds 1024 bytes");
@@ -108,15 +108,15 @@ int main(int argc, char* argv[]) {
             if (password != confirmation) throw std::runtime_error("passwords do not match");
             customdb::security::AuthStore auth(root / "auth" / "auth_store.json");
             auth.bootstrap_admin(username, password);
-            std::cout << "Administrator account created in " << (root / "auth" / "auth_store.json") << '.\\n';
+            std::cout << "Administrator account created in " << (root / "auth" / "auth_store.json") << '.\n';
             return 0;
         } catch (const std::exception& error) {
-            std::cerr << "Administrator bootstrap failed: " << error.what() << '\\n';
+            std::cerr << "Administrator bootstrap failed: " << error.what() << '\n';
             return 2;
         }
     }
     if (argc != 1) {
-        std::cerr << "Usage: custom_db_server [--bootstrap-admin]\\n";
+        std::cerr << "Usage: custom_db_server [--bootstrap-admin]\n";
         return 2;
     }
     const auto api_key = env_or("CUSTOMDB_API_KEY", "");
