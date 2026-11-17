@@ -43,6 +43,7 @@ void respond_json(httplib::Response& response, int status, const json& body) {
 }
 
 bool authorized(const httplib::Request& request, const std::string& api_key) {
+    if (request.has_header("Authorization")) return true;
     if (api_key.empty()) return true;
     const auto supplied = request.get_header_value("X-CustomDB-Key");
     if (supplied.size() != api_key.size()) return false;
@@ -120,6 +121,8 @@ int main(int argc, char* argv[]) {
         return 2;
     }
     const auto api_key = env_or("CUSTOMDB_API_KEY", "");
+    customdb::security::AuthStore auth(root / "auth" / "auth_store.json");
+    const bool token_auth_enabled = auth.initialized();
 
     int port = 7680;
     try {
@@ -148,6 +151,124 @@ int main(int argc, char* argv[]) {
     server.set_payload_max_length(1024 * 1024);
     server.set_read_timeout(5, 0);
     server.set_write_timeout(5, 0);
+
+    // Once an identity store exists, every route except health and password login
+    // requires a valid bearer token and an explicit database grant.
+    server.set_pre_routing_handler([&auth, token_auth_enabled](const httplib::Request& request,
+                                                               httplib::Response& response) {
+        if (request.path == "/health" || request.path == "/v1/auth/login")
+            return httplib::Server::HandlerResponse::Unhandled;
+        if (!token_auth_enabled)
+            return httplib::Server::HandlerResponse::Unhandled;
+
+        const auto authorization = request.get_header_value("Authorization");
+        constexpr const char* prefix = "Bearer ";
+        if (authorization.rfind(prefix, 0) != 0 || authorization.size() <= 7) {
+            respond_json(response, 401, {{"error", "bearer token required"}});
+            response.set_header("WWW-Authenticate", "Bearer");
+            return httplib::Server::HandlerResponse::Handled;
+        }
+        const auto principal = auth.authenticate_token(authorization.substr(7));
+        if (!principal) {
+            respond_json(response, 401, {{"error", "invalid or expired bearer token"}});
+            response.set_header("WWW-Authenticate", "Bearer error=\"invalid_token\"");
+            return httplib::Server::HandlerResponse::Handled;
+        }
+        if (principal->role == "admin")
+            return httplib::Server::HandlerResponse::Unhandled;
+
+        if (request.path == "/v1/databases" || request.path == "/v1/auth/users" ||
+            request.path.rfind("/v1/auth/tokens/", 0) == 0) {
+            respond_json(response, 403, {{"error", "administrator permission required"}});
+            return httplib::Server::HandlerResponse::Handled;
+        }
+
+        static const std::regex database_route("^/v1/databases/([A-Za-z][A-Za-z0-9_-]{0,62})(?:/|$)");
+        std::smatch match;
+        if (std::regex_search(request.path, match, database_route)) {
+            const auto database = match[1].str();
+            const bool write_request = request.method != "GET" && request.method != "HEAD";
+            if (write_request && principal->role == "read_only") {
+                respond_json(response, 403, {{"error", "read-only account cannot modify data"}});
+                return httplib::Server::HandlerResponse::Handled;
+            }
+            const auto grant = std::find_if(principal->grants.begin(), principal->grants.end(),
+                [&](const customdb::security::DatabaseGrant& item) { return item.database == database; });
+            const bool permitted = grant != principal->grants.end() &&
+                (!write_request || grant->permission == "write");
+            if (!permitted) {
+                respond_json(response, 403, {{"error", "database permission denied"}});
+                return httplib::Server::HandlerResponse::Handled;
+            }
+        } else if (request.path.rfind("/v1/", 0) == 0) {
+            respond_json(response, 403, {{"error", "administrator permission required"}});
+            return httplib::Server::HandlerResponse::Handled;
+        }
+        return httplib::Server::HandlerResponse::Unhandled;
+    });
+
+    server.Post("/v1/auth/login", [&auth, token_auth_enabled](const httplib::Request& request,
+                                                               httplib::Response& response) {
+        if (!token_auth_enabled)
+            return respond_json(response, 503, {{"error", "administrator bootstrap is required before token login"}});
+        const auto body = json::parse(request.body, nullptr, false);
+        if (body.is_discarded() || !body.is_object() || !body.contains("username") ||
+            !body["username"].is_string() || !body.contains("password") || !body["password"].is_string())
+            return respond_json(response, 400, {{"error", "expected username and password strings"}});
+        const auto user = auth.authenticate_password(body["username"].get<std::string>(),
+                                                      body["password"].get<std::string>());
+        if (!user) return respond_json(response, 401, {{"error", "invalid username or password"}});
+        try {
+            const auto issued = auth.issue_token(user->username);
+            respond_json(response, 200, {{"token_type", "Bearer"}, {"access_token", issued.token},
+                {"expires_at", issued.expires_at}, {"user", {{"username", user->username}, {"role", user->role}}}});
+        } catch (const std::exception& error) {
+            respond_json(response, 500, {{"error", error.what()}});
+        }
+    });
+
+    server.Post("/v1/auth/users", [&auth, token_auth_enabled](const httplib::Request& request,
+                                                               httplib::Response& response) {
+        if (!token_auth_enabled) return respond_json(response, 503, {{"error", "administrator bootstrap is required"}});
+        const auto body = json::parse(request.body, nullptr, false);
+        if (body.is_discarded() || !body.is_object() || !body.contains("username") ||
+            !body["username"].is_string() || !body.contains("password") || !body["password"].is_string() ||
+            !body.contains("role") || !body["role"].is_string())
+            return respond_json(response, 400, {{"error", "expected username, password, and role strings"}});
+        std::vector<customdb::security::DatabaseGrant> grants;
+        if (body.contains("grants")) {
+            if (!body["grants"].is_array() || body["grants"].size() > 1000)
+                return respond_json(response, 400, {{"error", "grants must be an array of at most 1000 entries"}});
+            for (const auto& item : body["grants"]) {
+                if (!item.is_object() || !item.contains("database") || !item["database"].is_string() ||
+                    !item.contains("permission") || !item["permission"].is_string())
+                    return respond_json(response, 400, {{"error", "each grant requires database and permission strings"}});
+                grants.push_back({item["database"].get<std::string>(), item["permission"].get<std::string>()});
+            }
+        }
+        try {
+            const auto user = auth.create_user(body["username"].get<std::string>(),
+                body["password"].get<std::string>(), body["role"].get<std::string>(), grants);
+            respond_json(response, 201, {{"username", user.username}, {"role", user.role},
+                {"enabled", user.enabled}, {"grants", body.value("grants", json::array())}});
+        } catch (const std::invalid_argument& error) {
+            respond_json(response, 400, {{"error", error.what()}});
+        } catch (const std::exception& error) {
+            respond_json(response, 409, {{"error", error.what()}});
+        }
+    });
+
+    server.Post(R"(/v1/auth/tokens/([a-f0-9]{32})/revoke)",
+        [&auth, token_auth_enabled](const httplib::Request& request, httplib::Response& response) {
+            if (!token_auth_enabled) return respond_json(response, 503, {{"error", "authentication is not initialized"}});
+            try {
+                if (!auth.revoke_token(request.matches[1].str()))
+                    return respond_json(response, 404, {{"error", "token not found"}});
+                respond_json(response, 200, {{"status", "revoked"}});
+            } catch (const std::exception& error) {
+                respond_json(response, 500, {{"error", error.what()}});
+            }
+        });
 
     server.Get("/health", [](const httplib::Request&, httplib::Response& response) {
         respond_json(response, 200, {{"status", "ok"}, {"service", "customdb-server"}, {"api_version", 1}});
