@@ -228,6 +228,53 @@ int main() {
             }
         });
 
+    server.Put(R"(/v1/databases/([a-zA-Z][a-zA-Z0-9_-]{0,62})/collections/([a-zA-Z][a-zA-Z0-9_-]{0,62})/documents)",
+        [root, api_key](const httplib::Request& request, httplib::Response& response) {
+            if (!authorized(request, api_key)) return respond_json(response, 401, {{"error", "unauthorized"}});
+            const auto name = request.matches[1].str();
+            const auto collection = request.matches[2].str();
+            const auto document = json::parse(request.body, nullptr, false);
+            if (document.is_discarded() || !document.is_object())
+                return respond_json(response, 400, {{"error", "request body must be a JSON object"}});
+            std::map<std::string, std::string> filters;
+            for (const auto& parameter : request.params) filters[parameter.first] = parameter.second;
+            if (filters.empty())
+                return respond_json(response, 400, {{"error", "at least one equality query parameter is required"}});
+            std::lock_guard<std::mutex> lock(engine_mutex);
+            const auto path = database_path(root, name);
+            if (!fs::is_regular_file(path)) return respond_json(response, 404, {{"error", "database not found"}});
+            try {
+                StorageEngine engine(path.string());
+                if (!engine.update_documents(collection, filters, document.dump()))
+                    return respond_json(response, 400, {{"error", engine.get_last_error()}});
+            } catch (const std::exception& error) {
+                return respond_json(response, 500, {{"error", error.what()}});
+            }
+            respond_json(response, 200, {{"collection", collection}, {"status", "updated"}});
+        });
+
+    server.Delete(R"(/v1/databases/([a-zA-Z][a-zA-Z0-9_-]{0,62})/collections/([a-zA-Z][a-zA-Z0-9_-]{0,62})/documents)",
+        [root, api_key](const httplib::Request& request, httplib::Response& response) {
+            if (!authorized(request, api_key)) return respond_json(response, 401, {{"error", "unauthorized"}});
+            const auto name = request.matches[1].str();
+            const auto collection = request.matches[2].str();
+            std::map<std::string, std::string> filters;
+            for (const auto& parameter : request.params) filters[parameter.first] = parameter.second;
+            if (filters.empty())
+                return respond_json(response, 400, {{"error", "at least one equality query parameter is required"}});
+            std::lock_guard<std::mutex> lock(engine_mutex);
+            const auto path = database_path(root, name);
+            if (!fs::is_regular_file(path)) return respond_json(response, 404, {{"error", "database not found"}});
+            try {
+                StorageEngine engine(path.string());
+                if (!engine.delete_documents(collection, filters))
+                    return respond_json(response, 404, {{"error", engine.get_last_error()}});
+            } catch (const std::exception& error) {
+                return respond_json(response, 500, {{"error", error.what()}});
+            }
+            respond_json(response, 200, {{"collection", collection}, {"status", "deleted"}});
+        });
+
     server.Post(R"(/v1/databases/([a-zA-Z][a-zA-Z0-9_-]{0,62})/schemas)",
         [root, api_key](const httplib::Request& request, httplib::Response& response) {
             if (!authorized(request, api_key)) return respond_json(response, 401, {{"error", "unauthorized"}});
