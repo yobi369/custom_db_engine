@@ -2,7 +2,7 @@
 
 ## Status
 
-Design proposal for the next server milestone. This document does not claim that multi-user authentication or database permissions are implemented. The current server still uses the optional shared `CUSTOMDB_API_KEY` described in [SERVER.md](SERVER.md).
+Implementation baseline on the `server-foundation` branch. Named users, password login, bearer-token sessions, centralized authentication, database-scoped grants, and administrator operations are implemented and covered by tests. The legacy shared `CUSTOMDB_API_KEY` is used only when no identity store exists; once an identity store exists, bearer authentication takes over.
 
 ## Goals
 
@@ -29,18 +29,18 @@ Authorization is database-scoped. A grant binds one user to one database and one
 ### Credential and token handling
 
 - Passwords are never stored in plaintext or with a fast general-purpose hash.
-- Use a vetted password KDF (prefer Argon2id; use a maintained PBKDF2-HMAC-SHA-256 implementation only if the supported build matrix cannot provide Argon2id) with per-user random salts and versioned parameters.
+- Current implementation: OpenSSL PBKDF2-HMAC-SHA-256 with 600,000 iterations, unique 16-byte salts, versioned parameters, and bounded verifier parsing. Argon2id remains a possible future KDF upgrade after portability evaluation.
 - Compare credential verifiers and token MACs using constant-time comparison.
 - Issue cryptographically random, opaque bearer tokens; store only a cryptographic hash of each token, with user ID, creation/expiry times, and revocation state.
 - Require bounded token lifetimes and support explicit revocation. Do not put passwords or tokens in URLs or logs.
-- Bootstrap the first administrator through a one-time local command or securely permissioned setup file. Never ship a default username/password and never silently create an administrator on network startup.
+- The first administrator is bootstrapped with `custom_db_server --bootstrap-admin`, using hidden password entry and confirmation. Never ship a default username/password and never silently create an administrator on network startup.
 
 ### Persistence and filesystem safety
 
 - Keep identity metadata outside database files, in a dedicated auth store beneath the configured data directory.
-- Restrict auth-store file permissions to the server account where supported; write updates atomically using a temporary file, flush, and rename.
+- Auth-store writes use a versioned JSON file, bounded parsing, a sibling temporary file, and atomic replacement. POSIX permissions are set to `0600`; Windows ACLs remain the operator's responsibility.
 - Validate all identifiers and derive paths on the server. No client-supplied filesystem paths.
-- Serialize auth-store mutations and define recovery behavior for malformed or partially written metadata.
+- Serialize in-process auth-store mutations. The server and bootstrap CLI acquire an OS-level exclusive lock so only one process uses a data directory at a time. Malformed stores fail closed; crash/power-loss recovery remains a hardening task.
 - Back up and restore database data without silently rolling back user credentials, grants, or token revocations.
 
 ### HTTP behavior
@@ -48,18 +48,18 @@ Authorization is database-scoped. A grant binds one user to one database and one
 - Public liveness endpoint: `GET /health`; it must not disclose database names, paths, configuration, or secrets.
 - Protected endpoints return `401` for missing/invalid credentials and `403` for authenticated users lacking permission.
 - Use `Authorization: Bearer <token>`; do not accept credentials in query strings.
-- Apply authentication and authorization consistently before opening a database handle or returning resource-existence details.
+- Central middleware applies authentication and authorization before protected route handlers open a database handle or return resource-existence details. `GET /health` and `POST /v1/auth/login` are the only unauthenticated routes in identity mode.
 - Keep request-size and timeout limits. Add rate limiting to login/token issuance and generic authentication errors that do not reveal whether a username exists.
-- Do not enable non-loopback binding merely because authentication is configured. Require an explicit operator opt-in and TLS at a trusted reverse proxy or a future native TLS configuration.
+- Non-loopback binding requires `CUSTOMDB_ALLOW_NON_LOOPBACK=1`; authentication alone does not provide transport encryption. Use TLS at a trusted reverse proxy.
 
 ## Implementation sequence
 
-1. **Threat model and storage design:** settle auth-store format, KDF dependency and supported platforms; add file-permission and atomic-write tests.
-2. **Bootstrap and credential primitives:** one-time admin setup, password verification, opaque token issuance, expiry and revocation; unit tests for malformed input and credential handling.
-3. **Central middleware:** replace per-route shared-key checks with one authentication context and centralized authorization policy. Ensure every route is covered.
-4. **User and grant administration:** admin-only create/disable users, rotate credentials, grant/revoke database roles.
-5. **Authorization matrix tests:** test every route for unauthenticated, read-only, read-write, admin, revoked, disabled, expired and cross-database access.
-6. **Operational hardening:** audit events without secrets, login throttling, auth-store backup/recovery tests, security review and updated deployment guidance.
+1. **Threat model and storage design:** implemented versioned auth-store format, OpenSSL KDF dependency, POSIX permissions, atomic replacement, and supported-platform CI.
+2. **Bootstrap and credential primitives:** implemented one-time admin setup, password verification, opaque token issuance, expiry, revocation, password reset, logout, and unit tests.
+3. **Central middleware:** implemented pre-routing bearer authentication and centralized role/database authorization. Legacy API-key fallback is disabled in identity mode.
+4. **User and grant administration:** implemented administrator create/list/disable, password reset, grant replacement, and token revocation.
+5. **Authorization matrix tests:** implemented HTTP tests for unauthenticated, read-only, read-write, admin, revoked, disabled, expired, malformed-token, cross-database, restore, lockout, and process-lock behavior.
+6. **Operational hardening:** login throttling and deployment guidance are implemented. Structured audit events, auth-store crash recovery/fault testing, independent security review, and password self-service remain outstanding.
 
 ## Explicit non-goals for the first implementation
 
@@ -68,7 +68,7 @@ Authorization is database-scoped. A grant binds one user to one database and one
 
 ## Acceptance criteria
 
-- No route other than the minimal liveness endpoint is accessible without a valid authenticated principal.
+- In identity mode, no protected route other than `GET /health` and `POST /v1/auth/login` is accessible without a valid authenticated principal; logout itself requires the current bearer token.
 - No user can access a database without an explicit grant, except an administrator.
 - Read-only users cannot mutate data or perform restore/administrative operations.
 - Revoked, expired, disabled-user, and malformed tokens are rejected.
