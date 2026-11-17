@@ -68,6 +68,21 @@ def main():
             _, result = request(base, "/v1/databases/integration/collections/users/documents?role=admin")
             assert result["count"] == 1 and result["documents"][0]["name"] == "Ada"
 
+            request(base, "/v1/databases/integration/collections/users/documents", "PUT",
+                    {"name": "Ada Lovelace", "role": "engineer"}, expected=400)
+            request(base, "/v1/databases/integration/collections/users/documents?role=admin", "PUT",
+                    {"name": "Ada Lovelace", "role": "engineer"}, expected=200)
+            _, result = request(base, "/v1/databases/integration/collections/users/documents?role=engineer")
+            assert result["count"] == 1 and result["documents"][0]["name"] == "Ada Lovelace"
+            request(base, "/v1/databases/integration/collections/users/documents?role=missing", "DELETE",
+                    expected=404)
+            request(base, "/v1/databases/integration/collections/users/documents", "DELETE",
+                    expected=400)
+            request(base, "/v1/databases/integration/collections/users/documents?role=engineer", "DELETE",
+                    expected=200)
+            _, result = request(base, "/v1/databases/integration/collections/users/documents")
+            assert result["count"] == 0
+
             request(base, "/v1/databases/integration/schemas", "POST",
                     {"collection": "members", "type": "object", "required": ["name"],
                      "properties": {"name": {"type": "string"}}}, expected=201)
