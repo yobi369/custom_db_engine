@@ -31,7 +31,9 @@ The service binds to loopback by default. If no auth store exists, the server re
 
 - `GET /health` — public liveness response.
 - `POST /v1/auth/login` — authenticate with JSON `{"username":"owner","password":"..."}`; returns a bearer access token, token ID, expiry timestamp, and non-secret user summary. Store the access token securely; it is returned only at issuance.
+- `GET /v1/auth/users` — administrator-only list of accounts and grants; password verifiers and tokens are never returned.
 - `POST /v1/auth/users` — administrator-only account creation. Body includes `username`, `password`, `role` (`admin`, `read_write`, or `read_only`), and optional `grants` array such as `[{"database":"example","permission":"write"}]`.
+- `PUT /v1/auth/users/{username}/grants` — administrator-only replacement of that account's database grants.
 - `PUT /v1/auth/users/{username}/enabled` — administrator-only account disable/re-enable using `{"enabled":false}`. Disabling a user revokes that user's existing tokens.
 - `POST /v1/auth/tokens/{token_id}/revoke` — administrator-only token revocation.
 
