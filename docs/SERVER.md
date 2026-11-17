@@ -27,6 +27,18 @@ CUSTOMDB_HOST=127.0.0.1 CUSTOMDB_PORT=7680 CUSTOMDB_DATA_DIR=./customdb-data ./b
 
 The service binds to loopback by default. If no auth store exists, the server retains its legacy mode: `CUSTOMDB_API_KEY` may protect routes with one shared secret, but a loopback deployment with no key is unauthenticated. Bootstrap the administrator before using the service with real data. Once `CUSTOMDB_DATA_DIR/auth/auth_store.json` exists, bearer-token authentication takes over for every route except `GET /health` and `POST /v1/auth/login`; legacy API-key headers do not replace bearer tokens. Non-loopback binding is refused unless the operator explicitly sets `CUSTOMDB_ALLOW_NON_LOOPBACK=1`. Use TLS termination in a trusted reverse proxy before exposing the service over an untrusted network.
 
+## Configuration and request limits
+
+| Environment variable | Default | Purpose |
+|---|---|---|
+| `CUSTOMDB_HOST` | `127.0.0.1` | Bind address. Non-loopback binding also requires explicit opt-in below. |
+| `CUSTOMDB_PORT` | `7680` | TCP port, from 1 to 65535. |
+| `CUSTOMDB_DATA_DIR` | `./customdb-data` | Root for database files, backups, auth metadata, audit log and the exclusive process lock. |
+| `CUSTOMDB_API_KEY` | unset | Optional shared key for legacy mode only, when no identity store exists. |
+| `CUSTOMDB_ALLOW_NON_LOOPBACK` | `0` | Must be set to `1` to bind beyond loopback. This is not a TLS switch. |
+
+Requests are limited to 1 MiB and have five-second read and write timeouts. Login throttling is five failed attempts per remote address per minute. Bearer tokens currently expire after 24 hours; logout, password changes, password resets and administrator revocation invalidate sessions as documented below.
+
 ## Authentication API
 
 - `GET /health` — public liveness response.
