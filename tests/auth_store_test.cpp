@@ -44,9 +44,9 @@ int main() {
     assert(store.revoke_token(issued.id));
     assert(!store.authenticate_token(issued.token));
 
-    const auto second = store.issue_token("reader01", std::chrono::seconds(1));
+    const auto second = store.issue_token("reader01", std::chrono::seconds(5));
     assert(store.authenticate_token(second.token));
-    assert(!store.authenticate_token(second.token, std::chrono::system_clock::now() + std::chrono::seconds(2)));
+    assert(!store.authenticate_token(second.token, std::chrono::system_clock::now() + std::chrono::seconds(10)));
     assert(store.set_user_enabled("reader01", false));
     assert(!store.authenticate_password("reader01", "reader password"));
     assert(!store.authenticate_token(second.token));
