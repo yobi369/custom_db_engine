@@ -350,6 +350,48 @@ int main(int argc, char** argv) {
 #endif
 
 
+    // Model a crash after checkpoint snapshot publication but before WAL truncation:
+    // retain the pre-checkpoint WAL even though the newer snapshot is already durable.
+    const std::string stale_checkpoint_path = "storage_engine_stale_checkpoint.json";
+    for (const auto& suffix : {"", ".wal", ".tmp", ".lock"}) std::filesystem::remove(stale_checkpoint_path + suffix, ec);
+    std::string pre_checkpoint_wal;
+    {
+        StorageEngine db(stale_checkpoint_path);
+        for (int i = 0; i < 63; ++i)
+            CHECK(db.write_data("checkpoint-" + std::to_string(i), "value-" + std::to_string(i)));
+        {
+            std::ifstream wal(stale_checkpoint_path + ".wal", std::ios::binary);
+            pre_checkpoint_wal.assign(std::istreambuf_iterator<char>(wal), std::istreambuf_iterator<char>());
+            CHECK(!pre_checkpoint_wal.empty());
+        }
+        // The 64th committed write publishes a checkpoint and normally clears the WAL.
+        CHECK(db.write_data("checkpoint-63", "value-63"));
+        CHECK(db.check_integrity());
+    }
+    {
+        std::ofstream wal(stale_checkpoint_path + ".wal", std::ios::binary | std::ios::trunc);
+        CHECK(static_cast<bool>(wal));
+        wal.write(pre_checkpoint_wal.data(), static_cast<std::streamsize>(pre_checkpoint_wal.size()));
+        CHECK(static_cast<bool>(wal));
+    }
+    {
+        StorageEngine recovered(stale_checkpoint_path);
+        CHECK(recovered.get_last_error().empty());
+        for (int i = 0; i < 64; ++i)
+            CHECK(recovered.read_data("checkpoint-" + std::to_string(i)) == "value-" + std::to_string(i));
+        CHECK(recovered.write_data("after_stale_checkpoint_wal", "generation-65"));
+        CHECK(recovered.check_integrity());
+    }
+    {
+        StorageEngine reopened(stale_checkpoint_path);
+        CHECK(reopened.get_last_error().empty());
+        CHECK(reopened.read_data("checkpoint-0") == "value-0");
+        CHECK(reopened.read_data("checkpoint-63") == "value-63");
+        CHECK(reopened.read_data("after_stale_checkpoint_wal") == "generation-65");
+        CHECK(reopened.check_integrity());
+    }
+    for (const auto& suffix : {"", ".wal", ".tmp", ".lock"}) std::filesystem::remove(stale_checkpoint_path + suffix, ec);
+
     // Exercise recovery across a long WAL without requiring the entire log to be
     // represented as one in-memory buffer.
     const std::string long_wal_path = "storage_engine_long_wal.json";
