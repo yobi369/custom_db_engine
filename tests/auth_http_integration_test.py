@@ -21,7 +21,12 @@ def request(base, path, method="GET", body=None, token=None, expected=None):
         with urllib.request.urlopen(req, timeout=3) as response:
             status, payload = response.status, response.read()
     except urllib.error.HTTPError as error:
-        status, payload = error.code, error.read()
+        status = error.code
+        try:
+            payload = error.read()
+        except OSError:
+            # Windows may reset a deliberately closed pre-routing rejection after headers arrive.
+            payload = b""
     decoded = json.loads(payload) if payload else {}
     if expected is not None and status != expected:
         raise AssertionError(f"{method} {path}: expected {expected}, got {status}: {decoded!r}")
