@@ -266,7 +266,7 @@ int main(int argc, char** argv) {
         CHECK(static_cast<bool>(wal));
         const std::string payload =
             R"({"format_version":1,"generation":2,"kv":{},"documents":{},"schemas":{},"indexes":[]})";
-        wal << "2 0000000000000000 " << payload << "\\n";
+        wal << "2 0000000000000000 " << payload << "\n";
         CHECK(static_cast<bool>(wal));
     }
     std::string corrupt_wal_before;
