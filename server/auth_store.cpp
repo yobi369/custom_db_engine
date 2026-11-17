@@ -91,6 +91,9 @@ UserRecord user_from_json(const json& value) {
         if (!valid_database_name(grant.database) ||
             (grant.permission != "read" && grant.permission != "write"))
             throw std::runtime_error("invalid database grant values in auth store");
+        if (std::any_of(user.grants.begin(), user.grants.end(),
+            [&](const DatabaseGrant& existing) { return existing.database == grant.database; }))
+            throw std::runtime_error("duplicate database grant in auth store");
         user.grants.push_back(std::move(grant));
     }
     if (user.password.algorithm != "pbkdf2-hmac-sha256" ||
@@ -230,10 +233,15 @@ UserRecord AuthStore::create_user(const std::string& username, const std::string
     if (!valid_username(username)) throw std::invalid_argument("username must be 3-64 safe characters");
     if (!valid_role(role)) throw std::invalid_argument("unsupported user role");
     if (grants.size() > kMaximumGrants) throw std::invalid_argument("too many database grants");
-    for (const auto& grant : grants)
+    for (std::size_t i = 0; i < grants.size(); ++i) {
+        const auto& grant = grants[i];
         if (!valid_database_name(grant.database) ||
             (grant.permission != "read" && grant.permission != "write"))
             throw std::invalid_argument("invalid database grant");
+        for (std::size_t j = i + 1; j < grants.size(); ++j)
+            if (grants[j].database == grant.database)
+                throw std::invalid_argument("duplicate database grant");
+    }
     auto verifier = hash_password(password);
     std::lock_guard<std::mutex> lock(mutex_);
     load_locked();
@@ -320,8 +328,10 @@ IssuedToken AuthStore::issue_token(const std::string& username, std::chrono::sec
     load_locked();
     const auto user = std::find_if(users_.begin(), users_.end(), [&](const UserRecord& u) { return u.username == username; });
     if (user == users_.end() || !user->enabled) throw std::runtime_error("user is unavailable");
-    if (tokens_.size() >= kMaximumTokens) throw std::runtime_error("token limit reached");
     const auto now = unix_seconds(std::chrono::system_clock::now());
+    tokens_.erase(std::remove_if(tokens_.begin(), tokens_.end(),
+        [&](const TokenRecord& item) { return item.revoked || item.expires_at <= now; }), tokens_.end());
+    if (tokens_.size() >= kMaximumTokens) throw std::runtime_error("token limit reached");
     TokenRecord record{generate_bearer_token().substr(0, 32), user->id, digest_bearer_token(raw),
                        now, now + lifetime.count(), false};
     tokens_.push_back(record);
