@@ -93,6 +93,8 @@ def main():
                     token=admin["access_token"], expected=201)
             request(base, "/v1/databases/alpha/kv/one", "PUT", {"value": "1"},
                     token=writer["access_token"], expected=200)
+            request(base, "/v1/databases/alpha/kv/one",
+                    auth_header="bEaReR " + writer["access_token"], expected=200)
             request(base, "/v1/databases/alpha/kv/one", token=reader["access_token"], expected=200)
             request(base, "/v1/databases/alpha/kv/one", "PUT", {"value": "2"},
                     token=reader["access_token"], expected=403)
