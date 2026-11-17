@@ -280,7 +280,7 @@ int main(int argc, char* argv[]) {
                                  {"enabled", user.enabled}, {"grants", grants}});
             }
             respond_json(response, 200, {{"users", users}});
-        } catch (const std::exception& error) {
+        } catch (const std::exception&) {
             respond_json(response, 503, {{"error", "authentication store unavailable"}});
         }
     });
