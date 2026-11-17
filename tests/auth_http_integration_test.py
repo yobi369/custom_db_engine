@@ -9,11 +9,15 @@ import urllib.error
 import urllib.request
 
 
-def request(base, path, method="GET", body=None, token=None, expected=None):
+def request(base, path, method="GET", body=None, token=None, expected=None, legacy_key=None, auth_header=None):
     data = None if body is None else json.dumps(body).encode()
     headers = {}
     if token:
         headers["Authorization"] = "Bearer " + token
+    if auth_header:
+        headers["Authorization"] = auth_header
+    if legacy_key:
+        headers["X-CustomDB-Key"] = legacy_key
     if data is not None:
         headers["Content-Type"] = "application/json"
     req = urllib.request.Request(base + path, data=data, headers=headers, method=method)
@@ -48,7 +52,7 @@ def main():
         subprocess.run([fixture_exe, data_dir], check=True)
         env = os.environ.copy()
         env.update({"CUSTOMDB_HOST": "127.0.0.1", "CUSTOMDB_PORT": str(port),
-                    "CUSTOMDB_DATA_DIR": data_dir})
+                    "CUSTOMDB_DATA_DIR": data_dir, "CUSTOMDB_API_KEY": "legacy-secret"})
         refused_env = env.copy()
         refused_env["CUSTOMDB_HOST"] = "0.0.0.0"
         refused_env.pop("CUSTOMDB_ALLOW_NON_LOOPBACK", None)
@@ -72,7 +76,10 @@ def main():
                 raise TimeoutError("CustomDB auth server did not become ready")
 
             request(base, "/v1/databases", expected=401)
+            request(base, "/v1/databases", legacy_key="legacy-secret", expected=401)
             request(base, "/v1/databases", token="not-a-valid-token", expected=401)
+            request(base, "/v1/databases", auth_header="bEaReR not-a-valid-token", expected=401)
+            request(base, "/v1/unknown", token="not-a-valid-token", expected=401)
             request(base, "/v1/databases?access_token=not-a-valid-token", expected=401)
             login(base, "rootadmin", "wrong password", expected=401)
             admin = login(base, "rootadmin", "administrator password 123")
@@ -109,6 +116,8 @@ def main():
                     token=writer["access_token"], expected=403)
             request(base, "/v1/databases/beta/kv/one", token=writer["access_token"], expected=403)
             request(base, "/v1/databases", token=reader["access_token"], expected=403)
+            request(base, "/v1/unknown", token=writer["access_token"], expected=403)
+            request(base, "/v1/auth/users", token=writer["access_token"], expected=403)
             request(base, "/v1/auth/users", "POST",
                     {"username": "blocked01", "password": "a sufficiently long password",
                      "role": "read_only", "grants": []},
@@ -132,6 +141,18 @@ def main():
             _, throttled = request(base, "/v1/auth/login", "POST",
                 {"username": "rootadmin", "password": "wrong password"}, expected=429)
             assert "too many" in throttled["error"]
+
+            request(base, "/v1/auth/users", "POST",
+                    {"username": "secondadmin", "password": "second administrator password",
+                     "role": "admin", "grants": []},
+                    token=admin["access_token"], expected=201)
+            second_admin = login(base, "secondadmin", "second administrator password")
+            request(base, "/v1/auth/users/rootadmin/enabled", "PUT", {"enabled": False},
+                    token=admin["access_token"], expected=200)
+            request(base, "/v1/databases", token=admin["access_token"], expected=401)
+            request(base, "/v1/auth/users/secondadmin/enabled", "PUT", {"enabled": False},
+                    token=second_admin["access_token"], expected=409)
+            request(base, "/v1/auth/users", token=second_admin["access_token"], expected=200)
             print("CustomDB bearer authentication and authorization matrix passed")
         finally:
             process.terminate()
