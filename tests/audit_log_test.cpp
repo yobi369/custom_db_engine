@@ -29,6 +29,7 @@ int main() {
     assert(second.find("\"user_password_changed\"") != std::string::npos);
     assert(first.find("password") == std::string::npos);
     assert(first.find("token") == std::string::npos);
+    input.close();
 #ifndef _WIN32
     struct stat info {};
     assert(::stat(file.c_str(), &info) == 0);
