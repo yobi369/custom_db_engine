@@ -29,6 +29,8 @@ The service binds to loopback by default. Binding to a non-loopback interface is
 - `DELETE /v1/databases/{database}/kv/{key}` — delete a key.
 - `POST /v1/databases/{database}/collections/{collection}/documents` — append a JSON object to a collection.
 - `GET /v1/databases/{database}/collections/{collection}/documents` — query documents; URL query parameters are equality filters.
+- `PUT /v1/databases/{database}/collections/{collection}/documents?field=value` — replace every matching document with the JSON object in the request body. At least one equality filter is required.
+- `DELETE /v1/databases/{database}/collections/{collection}/documents?field=value` — delete every matching document. At least one equality filter is required; an empty filter cannot delete an entire collection.
 - `POST /v1/databases/{database}/schemas` — create a collection schema using the engine's supported schema subset.
 - `PUT /v1/databases/{database}/indexes` with JSON body `{"field":"email"}` — create an equality index.
 - `DELETE /v1/databases/{database}/indexes?field=email` — drop an index.
@@ -46,4 +48,4 @@ Database names are restricted to letters, digits, underscore, and hyphen, and mu
 
 Every engine operation is serialized by a server-wide mutex and opens one engine handle for the duration of the request. This is deliberate: the current engine's exclusive file lock and transaction state do not provide independent concurrent-client transactions. The initial server does not claim multi-writer throughput, transaction isolation between clients, TLS built into the process, distributed operation, or production readiness.
 
-The current HTTP API supports key-value operations, append-only document insertion, equality-filtered document queries, schema creation, index management, and serialized atomic batches. Document updates/deletes, schema updates, per-client identities and permissions, robust audit logging, native TLS, load/fault testing, and SDKs remain planned work. Keep backups of important data; the underlying engine itself documents its current durability and format limitations.
+The current HTTP API supports key-value operations, document insertion, equality-filtered document queries and mutations, schema creation, index management, managed backups, integrity checks, and serialized atomic batches. Schema updates, per-client identities and permissions, robust audit logging, native TLS, load/fault testing, and SDKs remain planned work. Keep backups of important data; the underlying engine itself documents its current durability and format limitations.
