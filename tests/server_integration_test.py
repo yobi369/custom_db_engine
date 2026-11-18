@@ -11,7 +11,7 @@ import urllib.request
 
 
 def request(base, path, method="GET", body=None, key="test-secret", expected=None):
-    data = None if body is None else json.dumps(body).encode()
+    data = None if body is None else (body.encode() if isinstance(body, str) else json.dumps(body).encode())
     headers = {"X-CustomDB-Key": key}
     if data is not None:
         headers["Content-Type"] = "application/json"
@@ -55,7 +55,12 @@ def main():
 
             request(base, "/v1/databases", key="wrong", expected=401)
             request(base, "/v1/databases", "POST", {"name": "../escape"}, expected=400)
+            request(base, "/v1/databases", "POST", "{malformed-json", expected=400)
+            request(base, "/v1/databases", "POST", {}, expected=400)
             request(base, "/v1/databases", "POST", {"name": "integration"}, expected=201)
+            _, listed = request(base, "/v1/databases")
+            assert "integration" in listed["databases"]
+            request(base, "/v1/databases/missing/kv/key", expected=404)
             request(base, "/v1/databases", "POST", {"name": "integration"}, expected=409)
 
             request(base, "/v1/databases/integration/kv/greeting", "PUT", {"value": "hello"}, expected=200)
@@ -64,6 +69,10 @@ def main():
             request(base, "/v1/databases/integration/kv/greeting", "DELETE", expected=200)
             request(base, "/v1/databases/integration/kv/greeting", expected=404)
 
+            request(base, "/v1/databases/integration/collections/users/documents", "POST",
+                    "{malformed-json", expected=400)
+            request(base, "/v1/databases/integration/collections/users/documents", "POST",
+                    ["not", "an", "object"], expected=400)
             request(base, "/v1/databases/integration/collections/users/documents", "POST",
                     {"name": "Ada", "role": "admin"}, expected=201)
             _, result = request(base, "/v1/databases/integration/collections/users/documents?role=admin")
