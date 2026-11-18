@@ -1,5 +1,7 @@
 # CustomDB Server (initial local service)
 
+The machine-readable API contract is available in [OpenAPI 3.1 JSON](openapi.json). It is a route/schema reference; conditional authentication and current limitations are described below.
+
 This is the first HTTP server layer around the existing C++ storage engine. It is intentionally a local, single-host service and does not change the embedded engine's on-disk format.
 
 ## Build
