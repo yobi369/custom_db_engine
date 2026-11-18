@@ -5,7 +5,6 @@
 #include <filesystem>
 #include <iostream>
 #include <numeric>
-#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -27,6 +26,10 @@ int main(int argc, char** argv) {
             }
             record_count = static_cast<std::size_t>(parsed);
         }
+        if (argc > 2) {
+            std::cerr << "Usage: custom_db_engine_benchmark [record-count]\n";
+            return 2;
+        }
     } catch (...) {
         std::cerr << "Usage: custom_db_engine_benchmark [record-count]\n";
         return 2;
@@ -39,6 +42,7 @@ int main(int argc, char** argv) {
         std::cerr << "Cannot create isolated benchmark directory: " << ec.message() << '\n';
         return 1;
     }
+
     const fs::path database_path = work_dir / "benchmark.json";
     std::vector<double> write_latencies;
     write_latencies.reserve(record_count);
@@ -46,84 +50,101 @@ int main(int argc, char** argv) {
     double reopen_ms = 0.0;
     std::uintmax_t snapshot_bytes = 0;
     std::uintmax_t wal_bytes = 0;
+    bool success = false;
+    std::string failure;
 
+    // Defer cleanup until all StorageEngine handles have released their locks.
     {
         StorageEngine database(database_path.string());
         if (!database.create_database()) {
-            std::cerr << "Database creation failed: " << database.get_last_error() << '\n';
-            fs::remove_all(work_dir, ec);
-            return 1;
-        }
-
-        const std::string value(128, 'x');
-        for (std::size_t i = 0; i < record_count; ++i) {
-            const auto start = Clock::now();
-            if (!database.write_data("key-" + std::to_string(i), value)) {
-                std::cerr << "Write failed at record " << i << ": " << database.get_last_error() << '\n';
-                fs::remove_all(work_dir, ec);
-                return 1;
+            failure = "Database creation failed: " + database.get_last_error();
+        } else {
+            const std::string value(128, 'x');
+            for (std::size_t i = 0; i < record_count; ++i) {
+                const auto start = Clock::now();
+                if (!database.write_data("key-" + std::to_string(i), value)) {
+                    failure = "Write failed at record " + std::to_string(i) + ": " + database.get_last_error();
+                    break;
+                }
+                write_latencies.push_back(milliseconds(Clock::now() - start));
             }
-            write_latencies.push_back(milliseconds(Clock::now() - start));
-        }
 
-        const auto read_start = Clock::now();
-        for (std::size_t i = 0; i < record_count; ++i) {
-            if (database.read_data("key-" + std::to_string(i)) != value) {
-                std::cerr << "Read verification failed at record " << i << ": " << database.get_last_error() << '\n';
-                fs::remove_all(work_dir, ec);
-                return 1;
+            if (failure.empty()) {
+                const auto read_start = Clock::now();
+                for (std::size_t i = 0; i < record_count; ++i) {
+                    if (database.read_data("key-" + std::to_string(i)) != value) {
+                        failure = "Read verification failed at record " + std::to_string(i) + ": " + database.get_last_error();
+                        break;
+                    }
+                }
+                read_ms = milliseconds(Clock::now() - read_start);
+                if (failure.empty() && !database.check_integrity())
+                    failure = "Integrity check failed: " + database.get_last_error();
             }
-        }
-        read_ms = milliseconds(Clock::now() - read_start);
-        if (!database.check_integrity()) {
-            std::cerr << "Integrity check failed: " << database.get_last_error() << '\n';
-            fs::remove_all(work_dir, ec);
-            return 1;
         }
     }
 
-    {
+    if (failure.empty()) {
         const auto start = Clock::now();
-        StorageEngine reopened(database_path.string());
-        reopen_ms = milliseconds(Clock::now() - start);
-        if (!reopened.get_last_error().empty() || !reopened.check_integrity()) {
-            std::cerr << "Reopen verification failed: " << reopened.get_last_error() << '\n';
-            fs::remove_all(work_dir, ec);
-            return 1;
-        }
-        for (std::size_t i = 0; i < record_count; ++i) {
-            if (reopened.read_data("key-" + std::to_string(i)) != std::string(128, 'x')) {
-                std::cerr << "Persistence verification failed at record " << i << '\n';
-                fs::remove_all(work_dir, ec);
-                return 1;
+        {
+            StorageEngine reopened(database_path.string());
+            reopen_ms = milliseconds(Clock::now() - start);
+            if (!reopened.get_last_error().empty() || !reopened.check_integrity()) {
+                failure = "Reopen verification failed: " + reopened.get_last_error();
+            } else {
+                const std::string expected(128, 'x');
+                for (std::size_t i = 0; i < record_count; ++i) {
+                    if (reopened.read_data("key-" + std::to_string(i)) != expected) {
+                        failure = "Persistence verification failed at record " + std::to_string(i);
+                        break;
+                    }
+                }
             }
         }
-        snapshot_bytes = fs::file_size(database_path, ec);
-        if (ec) snapshot_bytes = 0;
-        wal_bytes = fs::file_size(database_path.string() + ".wal", ec);
-        if (ec) wal_bytes = 0;
+        if (failure.empty()) {
+            snapshot_bytes = fs::file_size(database_path, ec);
+            if (ec) {
+                failure = "Cannot measure snapshot size: " + ec.message();
+                ec.clear();
+            }
+            if (failure.empty()) {
+                wal_bytes = fs::file_size(database_path.string() + ".wal", ec);
+                if (ec) {
+                    failure = "Cannot measure WAL size: " + ec.message();
+                    ec.clear();
+                }
+            }
+        }
     }
 
-    std::sort(write_latencies.begin(), write_latencies.end());
-    const double total_write_ms = std::accumulate(write_latencies.begin(), write_latencies.end(), 0.0);
-    const auto percentile = [&write_latencies](double p) {
-        const auto index = static_cast<std::size_t>(p * static_cast<double>(write_latencies.size() - 1));
-        return write_latencies[index];
-    };
-
-    std::cout << "CustomDBEngine reproducible baseline\n"
-              << "records: " << record_count << "\n"
-              << "payload_bytes_per_record: 128\n"
-              << "write_total_ms: " << total_write_ms << "\n"
-              << "write_average_ms: " << total_write_ms / static_cast<double>(record_count) << "\n"
-              << "write_p50_ms: " << percentile(0.50) << "\n"
-              << "write_p95_ms: " << percentile(0.95) << "\n"
-              << "read_all_ms: " << read_ms << "\n"
-              << "reopen_ms: " << reopen_ms << "\n"
-              << "snapshot_bytes: " << snapshot_bytes << "\n"
-              << "wal_bytes: " << wal_bytes << "\n"
-              << "integrity_and_persistence: passed\n";
+    if (failure.empty()) {
+        std::sort(write_latencies.begin(), write_latencies.end());
+        const double total_write_ms = std::accumulate(write_latencies.begin(), write_latencies.end(), 0.0);
+        const auto percentile = [&write_latencies](double p) {
+            const auto index = static_cast<std::size_t>(p * static_cast<double>(write_latencies.size() - 1));
+            return write_latencies[index];
+        };
+        std::cout << "CustomDBEngine reproducible baseline\n"
+                  << "records: " << record_count << "\n"
+                  << "payload_bytes_per_record: 128\n"
+                  << "write_total_ms: " << total_write_ms << "\n"
+                  << "write_average_ms: " << total_write_ms / static_cast<double>(record_count) << "\n"
+                  << "write_p50_ms: " << percentile(0.50) << "\n"
+                  << "write_p95_ms: " << percentile(0.95) << "\n"
+                  << "read_all_ms: " << read_ms << "\n"
+                  << "reopen_ms: " << reopen_ms << "\n"
+                  << "snapshot_bytes: " << snapshot_bytes << "\n"
+                  << "wal_bytes: " << wal_bytes << "\n"
+                  << "integrity_and_persistence: passed\n";
+        success = true;
+    } else {
+        std::cerr << failure << '\n';
+    }
 
     fs::remove_all(work_dir, ec);
-    return 0;
+    if (ec) {
+        std::cerr << "Warning: benchmark temp directory cleanup failed: " << ec.message() << '\n';
+        if (success) return 1;
+    }
+    return success ? 0 : 1;
 }
