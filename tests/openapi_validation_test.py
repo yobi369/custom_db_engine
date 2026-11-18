@@ -60,7 +60,6 @@ def check_refs(value):
 
 check_refs(spec)
 for path, path_item in spec["paths"].items():
-    path_parameters = set(re.findall(r"\{([^}]+)\}", path)) if False else None
     # Avoid dependency on regex: OpenAPI path variables are bracket-delimited.
     path_parameters = {part.split("}", 1)[0] for part in path.split("{")[1:]}
     for method, operation in path_item.items():
