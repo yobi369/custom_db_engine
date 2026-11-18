@@ -78,8 +78,8 @@ for path, path_item in spec["paths"].items():
             f"{path_parameters - declared_path_parameters}"
         )
         for parameter in parameters:
-            assert parameter.get("name") and parameter.get("in"), f"invalid parameter in {method.upper()} {path"
-            assert "schema" in parameter, f"parameter schema missing in {method.upper()} {path"
+            assert parameter.get("name") and parameter.get("in"), f"invalid parameter in {method.upper()} {path}"
+            assert "schema" in parameter, f"parameter schema missing in {method.upper()} {path}"
         body = operation.get("requestBody", {}).get("content", {}).get("application/json", {}).get("schema", {})
         if body.get("$ref"):
             assert body["$ref"].split("/")[-1] in schemas, f"unknown request schema: {body['$ref']}"
