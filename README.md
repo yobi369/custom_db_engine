@@ -8,7 +8,7 @@ A C++17 embedded database prototype with persistent key-value storage, write-ahe
 
 CustomDB is also being developed as a reusable local database service. The optional HTTP server, named databases, bearer authentication, database-scoped roles, backups, and bounded local security-event logging are under active development on the `server-foundation` branch. The embedded engine remains the storage core; server concurrency and durability limitations still apply.
 
-See [the complete product roadmap](docs/PRODUCT_ROADMAP.md), [server/API guide](docs/SERVER.md), and [OpenAPI 3.1 specification](docs/openapi.json). No other applications are connected yet, and the service is not presented as production-ready.
+See [the complete product roadmap](docs/PRODUCT_ROADMAP.md), [server/API guide](docs/SERVER.md), [single-host deployment and recovery guide](docs/DEPLOYMENT.md), and [OpenAPI 3.1 specification](docs/openapi.json). No other applications are connected yet, and the service is not presented as production-ready.
 
 ## Features
 
