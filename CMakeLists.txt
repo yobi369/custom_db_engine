@@ -86,7 +86,7 @@ if(CUSTOM_DB_ENGINE_BUILD_BENCHMARKS)
   target_link_libraries(custom_db_engine_benchmark PRIVATE CustomDBEngine::custom_db_engine)
   if(BUILD_TESTING)
     add_test(NAME storage_benchmark_smoke COMMAND custom_db_engine_benchmark 25)
-    set_tests_properties(storage_benchmark_smoke PROPERTIES WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
+    set_tests_properties(storage_benchmark_smoke PROPERTIES WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
     add_test(NAME storage_benchmark_medium COMMAND custom_db_engine_benchmark 1000)
     set_tests_properties(storage_benchmark_medium PROPERTIES WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
   endif()
