@@ -16,7 +16,7 @@ Implementation baseline on the `server-foundation` branch. Named users, password
 
 ### Principals and roles
 
-Each authenticated principal has a stable user ID, username, credential-verifier metadata, status, and timestamps. Usernames are unique. Disabled users cannot authenticate and their outstanding tokens are rejected.
+Each authenticated principal has a stable user ID, username, credential-verifier metadata, enabled status, and database grants. Usernames are unique. Disabled users cannot authenticate and their outstanding tokens are rejected.
 
 Initial roles:
 
@@ -24,13 +24,13 @@ Initial roles:
 - `read_write`: read and mutate data only in explicitly granted databases.
 - `read_only`: read data only in explicitly granted databases.
 
-Authorization is database-scoped. A grant binds one user to one database and one role. Database creation and deletion, user administration, grants, backup restore, and other administrative operations require explicit administrative permission. Restore is treated as a destructive write operation.
+Authorization is database-scoped. A grant binds one user to one database and one permission (`read` or `write`). Database creation and deletion, user administration, grants, backup restore, and other administrative operations require explicit administrative permission. Restore is treated as a destructive write operation.
 
 ### Credential and token handling
 
 - Passwords are never stored in plaintext or with a fast general-purpose hash.
 - Current implementation: OpenSSL PBKDF2-HMAC-SHA-256 with 600,000 iterations, unique 16-byte salts, versioned parameters, and bounded verifier parsing. Argon2id remains a possible future KDF upgrade after portability evaluation.
-- Compare credential verifiers and token MACs using constant-time comparison.
+- Compare password verifiers and token digests using constant-time comparison.
 - Issue cryptographically random, opaque bearer tokens; store only a cryptographic hash of each token, with user ID, creation/expiry times, and revocation state.
 - Require bounded token lifetimes and support explicit revocation. Do not put passwords or tokens in URLs or logs.
 - The first administrator is bootstrapped with `custom_db_server --bootstrap-admin`, using hidden password entry and confirmation. Never ship a default username/password and never silently create an administrator on network startup.
