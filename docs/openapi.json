@@ -3,7 +3,7 @@
   "info": {
     "title": "CustomDB HTTP API",
     "version": "1.0.0",
-    "description": "HTTP API for CustomDB server. Authentication mode depends on whether identity storage is initialized; see docs/SERVER.md for security and operational limitations."
+    "description": "HTTP API for CustomDB server. Authentication mode depends on whether identity storage is initialized; see docs/SERVER.md for security and operational limitations. Document collection query parameters are dynamic equality filters; OpenAPI represents them using a placeholder parameter because their field names are user-defined."
   },
   "servers": [
     {
