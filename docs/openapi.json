@@ -660,6 +660,15 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "field",
+            "in": "query",
+            "required": false,
+            "description": "Placeholder for user-defined equality filter parameters; pass actual field names as query parameters (for example ?status=active). Updates and deletes require at least one filter.",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "description": "Query/update/delete accepts arbitrary query parameters as equality filters; mutation requires at least one filter."
@@ -700,6 +709,15 @@
             "name": "collection",
             "in": "path",
             "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "field",
+            "in": "query",
+            "required": false,
+            "description": "Placeholder for user-defined equality filter parameters; pass actual field names as query parameters (for example ?status=active). Updates and deletes require at least one filter.",
             "schema": {
               "type": "string"
             }
@@ -753,6 +771,15 @@
             "name": "collection",
             "in": "path",
             "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "field",
+            "in": "query",
+            "required": false,
+            "description": "Placeholder for user-defined equality filter parameters; pass actual field names as query parameters (for example ?status=active). Updates and deletes require at least one filter.",
             "schema": {
               "type": "string"
             }
@@ -880,6 +907,15 @@
             "name": "database",
             "in": "path",
             "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "field",
+            "in": "query",
+            "required": true,
+            "description": "Index field name to drop.",
             "schema": {
               "type": "string"
             }
