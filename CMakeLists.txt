@@ -76,6 +76,8 @@ if(CUSTOM_DB_ENGINE_BUILD_SERVER)
     add_test(NAME custom_db_server_integration
       COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/server_integration_test.py $<TARGET_FILE:custom_db_server>)
     set_tests_properties(custom_db_server_integration PROPERTIES TIMEOUT 30)
+    add_test(NAME openapi_contract_validation
+      COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/openapi_validation_test.py)
   endif()
 endif()
 
