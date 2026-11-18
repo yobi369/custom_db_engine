@@ -1169,11 +1169,16 @@
         ],
         "properties": {
           "username": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.@-]{2,63}$",
+            "maxLength": 64
           },
           "password": {
             "type": "string",
-            "format": "password"
+            "format": "password",
+            "minLength": 12,
+            "maxLength": 1024,
+            "description": "Password is validated by byte length (12–1024 bytes)."
           }
         }
       },
@@ -1258,7 +1263,10 @@
         "properties": {
           "password": {
             "type": "string",
-            "format": "password"
+            "format": "password",
+            "minLength": 12,
+            "maxLength": 1024,
+            "description": "Password is validated by byte length (12–1024 bytes)."
           }
         }
       },
@@ -1275,7 +1283,10 @@
           },
           "new_password": {
             "type": "string",
-            "format": "password"
+            "format": "password",
+            "minLength": 12,
+            "maxLength": 1024,
+            "description": "Password is validated by byte length (12–1024 bytes)."
           }
         }
       },
@@ -1287,7 +1298,9 @@
         ],
         "properties": {
           "database": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9_-]{0,62}$",
+            "maxLength": 63
           },
           "permission": {
             "enum": [
@@ -1321,11 +1334,16 @@
         ],
         "properties": {
           "username": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.@-]{2,63}$",
+            "maxLength": 64
           },
           "password": {
             "type": "string",
-            "format": "password"
+            "format": "password",
+            "minLength": 12,
+            "maxLength": 1024,
+            "description": "Password is validated by byte length (12–1024 bytes)."
           },
           "role": {
             "enum": [
@@ -1354,11 +1372,84 @@
             "minItems": 1,
             "maxItems": 100,
             "items": {
-              "type": "object",
-              "additionalProperties": true
+              "$ref": "#/components/schemas/TransactionOperation"
             }
           }
         }
+      },
+      "TransactionPut": {
+        "type": "object",
+        "required": [
+          "type",
+          "key",
+          "value"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "put"
+          },
+          "key": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "TransactionDelete": {
+        "type": "object",
+        "required": [
+          "type",
+          "key"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "delete"
+          },
+          "key": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "TransactionInsertDocument": {
+        "type": "object",
+        "required": [
+          "type",
+          "collection",
+          "document"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "insert_document"
+          },
+          "collection": {
+            "type": "string",
+            "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,62}$"
+          },
+          "document": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "TransactionOperation": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/TransactionPut"
+          },
+          {
+            "$ref": "#/components/schemas/TransactionDelete"
+          },
+          {
+            "$ref": "#/components/schemas/TransactionInsertDocument"
+          }
+        ]
       }
     }
   }
