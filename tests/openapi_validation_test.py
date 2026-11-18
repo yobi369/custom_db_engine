@@ -97,4 +97,18 @@ assert any(p.get("name") == "field" and p.get("in") == "query" and p.get("requir
     "DELETE index must declare its required field query parameter"
 )
 
+# Pin documented security/input constraints to the implemented policy.
+assert schemas["LoginRequest"]["properties"]["password"].get("minLength") == 12
+assert schemas["CreateUser"]["properties"]["password"].get("maxLength") == 1024
+assert schemas["CreateUser"]["properties"]["username"].get("pattern"), "username validation pattern missing"
+transaction = schemas["TransactionRequest"]["properties"]["operations"]
+assert transaction.get("minItems") == 1 and transaction.get("maxItems") == 100
+assert transaction["items"].get("$ref") == "#/components/schemas/TransactionOperation"
+variants = schemas["TransactionOperation"].get("oneOf", [])
+assert {ref.get("$ref") for ref in variants} == {
+    "#/components/schemas/TransactionPut",
+    "#/components/schemas/TransactionDelete",
+    "#/components/schemas/TransactionInsertDocument",
+}
+
 print(f"OpenAPI contract validated: {len(expected)} paths, {operation_count} operations")
