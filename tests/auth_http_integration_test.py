@@ -118,7 +118,7 @@ def main():
             request(base, "/v1/auth/users/reader01/grants", "PUT",
                     {"grants": [{"database": "alpha", "permission": "write"}]},
                     token=admin["access_token"], expected=200)
-            request(base, "/v1/databases/alpha/kv/one", "PUT", {"value": "4"},
+            request(base, "/v1/databases/alpha/kv/one", "PUT",
                     token=reader["access_token"], expected=403)
             request(base, "/v1/databases/alpha/backups", "POST", {"name": "auth-snapshot"},
                     token=admin["access_token"], expected=201)
