@@ -33,6 +33,8 @@ CUSTOMDB_DATA_DIR=./customdb-data \
 ./build/custom_db_server
 ```
 
+Stop with Ctrl+C on POSIX terminals or send SIGTERM from the service manager. On Windows, Ctrl+C or Ctrl+Break from the owning console requests a coordinated stop. The signal/control handler does not perform server shutdown itself; a monitor thread invokes the HTTP server stop operation. Wait for process exit before copying or restoring data files. A Windows service manager that forcibly terminates the process can bypass console handling, so validate its stop mechanism and timeout on the target host.
+
 In identity mode, login and the `/health/*` operational endpoints are public. Use `GET /health/live` for process liveness and `GET /health/ready` for the configured data-directory/filesystem readiness check; `GET /health` remains a compatibility alias for readiness. Use a bearer token in the `Authorization: Bearer <token>` header. Administrators can create databases and manage users; non-admin accounts require database grants. The default token lifetime is 24 hours.
 
 ## 4. Put TLS in front before remote access

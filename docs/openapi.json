@@ -36,7 +36,8 @@
             "description": "Internal error"
           }
         },
-        "description": "Returns 200 when the configured data directory and filesystem capacity can be inspected; otherwise returns 503."
+        "description": "Returns 200 when the configured data directory and filesystem capacity can be inspected; otherwise returns 503.",
+        "security": []
       }
     },
     "/v1/auth/login": {
@@ -72,7 +73,8 @@
               }
             }
           }
-        }
+        },
+        "security": []
       }
     },
     "/v1/auth/users": {
@@ -98,7 +100,15 @@
           "500": {
             "description": "Internal error"
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "legacyApiKey": []
+          }
+        ]
       },
       "post": {
         "summary": "Create user account",
@@ -132,7 +142,15 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "legacyApiKey": []
+          }
+        ]
       }
     },
     "/v1/auth/users/{username}/grants": {
@@ -178,7 +196,15 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "legacyApiKey": []
+          }
+        ]
       }
     },
     "/v1/auth/users/{username}/enabled": {
@@ -224,7 +250,15 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "legacyApiKey": []
+          }
+        ]
       }
     },
     "/v1/auth/users/{username}/password": {
@@ -270,7 +304,15 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "legacyApiKey": []
+          }
+        ]
       }
     },
     "/v1/auth/password": {
@@ -306,7 +348,15 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "legacyApiKey": []
+          }
+        ]
       }
     },
     "/v1/auth/logout": {
@@ -332,7 +382,15 @@
           "500": {
             "description": "Internal error"
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "legacyApiKey": []
+          }
+        ]
       }
     },
     "/v1/auth/tokens/{token_id}/revoke": {
@@ -368,6 +426,14 @@
               "type": "string"
             }
           }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "legacyApiKey": []
+          }
         ]
       }
     },
@@ -394,7 +460,15 @@
           "500": {
             "description": "Internal error"
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "legacyApiKey": []
+          }
+        ]
       },
       "post": {
         "summary": "Create database",
@@ -428,7 +502,15 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "legacyApiKey": []
+          }
+        ]
       }
     },
     "/v1/databases/{database}/kv/{key}": {
@@ -482,7 +564,15 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "legacyApiKey": []
+          }
+        ]
       },
       "get": {
         "summary": "Read key/value",
@@ -523,6 +613,14 @@
             "schema": {
               "type": "string"
             }
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "legacyApiKey": []
           }
         ]
       },
@@ -565,6 +663,14 @@
             "schema": {
               "type": "string"
             }
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "legacyApiKey": []
           }
         ]
       }
@@ -620,7 +726,15 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "legacyApiKey": []
+          }
+        ]
       },
       "get": {
         "summary": "Query documents using equality filters",
@@ -672,7 +786,15 @@
             }
           }
         ],
-        "description": "Query/update/delete accepts arbitrary query parameters as equality filters; mutation requires at least one filter."
+        "description": "Query/update/delete accepts arbitrary query parameters as equality filters; mutation requires at least one filter.",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "legacyApiKey": []
+          }
+        ]
       },
       "put": {
         "summary": "Update documents using equality filters",
@@ -734,7 +856,15 @@
             }
           }
         },
-        "description": "Query/update/delete accepts arbitrary query parameters as equality filters; mutation requires at least one filter."
+        "description": "Query/update/delete accepts arbitrary query parameters as equality filters; mutation requires at least one filter.",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "legacyApiKey": []
+          }
+        ]
       },
       "delete": {
         "summary": "Delete documents using equality filters",
@@ -786,7 +916,15 @@
             }
           }
         ],
-        "description": "Query/update/delete accepts arbitrary query parameters as equality filters; mutation requires at least one filter."
+        "description": "Query/update/delete accepts arbitrary query parameters as equality filters; mutation requires at least one filter.",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "legacyApiKey": []
+          }
+        ]
       }
     },
     "/v1/databases/{database}/schemas": {
@@ -832,7 +970,15 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "legacyApiKey": []
+          }
+        ]
       }
     },
     "/v1/databases/{database}/indexes": {
@@ -878,7 +1024,15 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "legacyApiKey": []
+          }
+        ]
       },
       "delete": {
         "summary": "Drop equality index",
@@ -921,6 +1075,14 @@
               "type": "string"
             }
           }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "legacyApiKey": []
+          }
         ]
       }
     },
@@ -957,6 +1119,14 @@
               "type": "string"
             }
           }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "legacyApiKey": []
+          }
         ]
       }
     },
@@ -992,6 +1162,14 @@
             "schema": {
               "type": "string"
             }
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "legacyApiKey": []
           }
         ]
       },
@@ -1037,7 +1215,15 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "legacyApiKey": []
+          }
+        ]
       }
     },
     "/v1/databases/{database}/backups/{backup}/restore": {
@@ -1091,7 +1277,15 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "legacyApiKey": []
+          }
+        ]
       }
     },
     "/v1/databases/{database}/transactions": {
@@ -1137,7 +1331,15 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "legacyApiKey": []
+          }
+        ]
       }
     },
     "/health/live": {
@@ -1148,7 +1350,8 @@
           "200": {
             "description": "HTTP process is responsive"
           }
-        }
+        },
+        "security": []
       }
     },
     "/health/ready": {
@@ -1207,7 +1410,8 @@
           "503": {
             "description": "Service is not ready"
           }
-        }
+        },
+        "security": []
       }
     }
   },
@@ -1215,12 +1419,14 @@
     "securitySchemes": {
       "bearerAuth": {
         "type": "http",
-        "scheme": "bearer"
+        "scheme": "bearer",
+        "description": "Required after the identity store has been initialized; bearer tokens are mandatory in identity mode."
       },
       "legacyApiKey": {
         "type": "apiKey",
         "in": "header",
-        "name": "X-CustomDB-Key"
+        "name": "X-CustomDB-Key",
+        "description": "Accepted only before an identity store has been initialized; ignored in identity mode."
       }
     },
     "schemas": {

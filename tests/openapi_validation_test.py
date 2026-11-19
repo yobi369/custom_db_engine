@@ -32,6 +32,14 @@ expected = {
     "/v1/databases/{database}/transactions": {"post"},
 }
 methods = {"get", "post", "put", "delete", "patch", "head", "options"}
+public_operations = {
+    ("get", "/health"),
+    ("get", "/health/live"),
+    ("get", "/health/ready"),
+    ("post", "/v1/auth/login"),
+}
+expected_security = [{"bearerAuth": []}, {"legacyApiKey": []}]
+assert set(spec.get("components", {}).get("securitySchemes", {})) >= {"bearerAuth", "legacyApiKey"}
 assert set(spec["paths"]) == set(expected), "documented route set differs from expected API route set"
 for path, expected_methods in expected.items():
     actual_methods = {m for m in spec["paths"][path] if m in methods}
@@ -68,6 +76,12 @@ for path, path_item in spec["paths"].items():
         if method not in methods:
             continue
         operation_count += 1
+        if (method, path) in public_operations:
+            assert operation.get("security") == [], f"{method.upper()} {path} must be public"
+        else:
+            assert operation.get("security") == expected_security, (
+                f"{method.upper()} {path}: authentication alternatives are missing or incorrect"
+            )
         opid = operation.get("operationId")
         assert opid, f"operationId missing for {method.upper()} {path}"
         assert opid not in operation_ids, f"duplicate operationId: {opid}"

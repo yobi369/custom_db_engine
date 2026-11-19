@@ -27,6 +27,8 @@ Start the local service:
 CUSTOMDB_HOST=127.0.0.1 CUSTOMDB_PORT=7680 CUSTOMDB_DATA_DIR=./customdb-data ./build/custom_db_server
 ```
 
+Stop with Ctrl+C on a POSIX terminal (SIGINT); service managers may send SIGTERM. On Windows, Ctrl+C or Ctrl+Break in the owning console requests shutdown. The handler only records the signal; a monitor thread calls the HTTP server's stop operation outside the signal handler. The integration test verifies clean process exit followed by reopening the same data directory. Validate the actual service manager's stop behavior separately.
+
 The service binds to loopback by default. If no auth store exists, the server retains its legacy mode: `CUSTOMDB_API_KEY` may protect routes with one shared secret, but a loopback deployment with no key is unauthenticated. Bootstrap the administrator before using the service with real data. Once `CUSTOMDB_DATA_DIR/auth/auth_store.json` exists, bearer-token authentication takes over for every route except `GET /health` and `POST /v1/auth/login`; legacy API-key headers do not replace bearer tokens. Non-loopback binding is refused unless the operator explicitly sets `CUSTOMDB_ALLOW_NON_LOOPBACK=1`. Use TLS termination in a trusted reverse proxy before exposing the service over an untrusted network.
 
 ## Configuration and request limits
@@ -43,7 +45,7 @@ Requests are limited to 1 MiB and have five-second read and write timeouts. Logi
 
 ## Authentication API
 
-- `GET /health` — public liveness response.
+- `GET /health` — public readiness alias; checks the configured data directory and filesystem capacity. Use `/health/live` for process liveness.
 - `POST /v1/auth/login` — authenticate with JSON `{"username":"owner","password":"..."}`; returns a bearer access token, token ID, expiry timestamp, and non-secret user summary. Store the access token securely; it is returned only at issuance.
 - `GET /v1/auth/users` — administrator-only list of accounts and grants; password verifiers and tokens are never returned.
 - `POST /v1/auth/users` — administrator-only account creation. Body includes `username`, `password`, `role` (`admin`, `read_write`, or `read_only`), and optional `grants` array such as `[{"database":"example","permission":"write"}]`.
