@@ -4,7 +4,6 @@
 #undef NDEBUG
 #endif
 #include <cassert>
-#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #ifndef _WIN32
@@ -94,20 +93,13 @@ int main() {
     const std::string before_bytes((std::istreambuf_iterator<char>(before_input)),
                                    std::istreambuf_iterator<char>());
     assert(!before_bytes.empty());
-#ifdef _WIN32
-    _putenv_s("CUSTOMDB_TEST_FAIL_AUTH_STORE_REPLACE", "1");
-#else
-    setenv("CUSTOMDB_TEST_FAIL_AUTH_STORE_REPLACE", "1", 1);
-#endif
+    const auto replacement_failure_marker = file.string() + ".fail-replace";
+    { std::ofstream marker(replacement_failure_marker); marker << "inject"; }
     bool replacement_failed = false;
     try { (void)store.create_user("failure01", "failure test password", "read_only"); }
     catch (const std::runtime_error&) { replacement_failed = true; }
     assert(replacement_failed);
-#ifdef _WIN32
-    _putenv_s("CUSTOMDB_TEST_FAIL_AUTH_STORE_REPLACE", "");
-#else
-    unsetenv("CUSTOMDB_TEST_FAIL_AUTH_STORE_REPLACE");
-#endif
+    std::filesystem::remove(replacement_failure_marker);
     std::ifstream after_input(file, std::ios::binary);
     const std::string after_bytes((std::istreambuf_iterator<char>(after_input)),
                                   std::istreambuf_iterator<char>());
