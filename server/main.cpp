@@ -1064,7 +1064,7 @@ int main(int argc, char* argv[]) {
     const auto previous_sigterm = std::signal(SIGTERM, request_shutdown);
 #endif
 
-    // Signal handlers only set a sig_atomic_t flag. A normal thread performs
+    // Signal handlers only set a lock-free atomic flag. A normal thread performs
     // cpp-httplib shutdown so no non-async-signal-safe work runs in a handler.
     std::atomic<bool> listen_finished{false};
     std::thread shutdown_monitor([&server, &listen_finished]() {
