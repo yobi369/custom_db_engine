@@ -288,7 +288,7 @@ int main(int argc, char* argv[]) {
     // requires a valid bearer token and an explicit database grant.
     server.set_pre_routing_handler([&auth, &audit, token_auth_enabled](const httplib::Request& request,
                                                                httplib::Response& response) {
-        if (request.path == "/health" || request.path == "/v1/auth/login")
+        if (request.path == "/health" || request.path.rfind("/health/", 0) == 0 || request.path == "/v1/auth/login")
             return httplib::Server::HandlerResponse::Unhandled;
         if (!token_auth_enabled)
             return httplib::Server::HandlerResponse::Unhandled;
@@ -605,9 +605,34 @@ int main(int argc, char* argv[]) {
             }
         });
 
-    server.Get("/health", [](const httplib::Request&, httplib::Response& response) {
-        respond_json(response, 200, {{"status", "ok"}, {"service", "customdb-server"}, {"api_version", 1}});
+    // Liveness reports that the HTTP process is responsive; it does not imply storage readiness.
+    server.Get("/health/live", [](const httplib::Request&, httplib::Response& response) {
+        respond_json(response, 200, {{"status", "alive"}, {"service", "customdb-server"}});
     });
+
+    // Readiness checks the configured data directory without exposing its filesystem path.
+    const auto readiness_handler = [root](const httplib::Request&, httplib::Response& response) {
+        std::error_code error;
+        const bool directory_ready = fs::is_directory(root, error) && !error;
+        if (!directory_ready) {
+            respond_json(response, 503, {{"status", "not_ready"}, {"service", "customdb-server"},
+                                         {"checks", {{"data_directory", false}}}});
+            return;
+        }
+        const auto capacity = fs::space(root, error);
+        if (error) {
+            respond_json(response, 503, {{"status", "not_ready"}, {"service", "customdb-server"},
+                                         {"checks", {{"data_directory", true}, {"filesystem_capacity", false}}}});
+            return;
+        }
+        respond_json(response, 200, {{"status", "ready"}, {"service", "customdb-server"},
+                                     {"api_version", 1},
+                                     {"checks", {{"data_directory", true}, {"filesystem_capacity", true}}},
+                                     {"available_bytes", capacity.available}});
+    };
+    server.Get("/health/ready", readiness_handler);
+    // Keep the original endpoint as a backwards-compatible readiness alias.
+    server.Get("/health", readiness_handler);
 
     server.Get("/v1/databases", [root, api_key](const httplib::Request& request, httplib::Response& response) {
         if (!authorized(request, api_key)) return respond_json(response, 401, {{"error", "unauthorized"}});
