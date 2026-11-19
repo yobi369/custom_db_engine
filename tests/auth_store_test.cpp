@@ -87,6 +87,7 @@ int main() {
     assert(!store.authenticate_password("reader01", "new reader password"));
     assert(!store.authenticate_token(fourth.token));
 
+#ifndef _WIN32
     // A failed atomic replacement must preserve the previous on-disk store
     // and roll back the in-memory mutation.
     std::ifstream before_input(file, std::ios::binary);
@@ -107,6 +108,8 @@ int main() {
     assert(!store.find_user("failure01"));
     for (const auto& entry : std::filesystem::directory_iterator(root))
         assert(entry.path().filename().string().find("auth.json.tmp-") != 0);
+
+#endif
 
     AuthStore reopened(file);
     assert(reopened.find_user("admin@example.test"));
