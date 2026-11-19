@@ -53,6 +53,13 @@ def main():
             else:
                 raise TimeoutError("CustomDB server did not become ready")
 
+            _, live = request(base, "/health/live", key="", expected=200)
+            assert live["status"] == "alive"
+            _, ready = request(base, "/health/ready", key="", expected=200)
+            assert ready["status"] == "ready"
+            assert ready["checks"]["data_directory"] is True
+            assert ready["checks"]["filesystem_capacity"] is True
+            assert isinstance(ready["available_bytes"], int) and ready["available_bytes"] >= 0
             request(base, "/v1/databases", key="wrong", expected=401)
             request(base, "/v1/databases", "POST", {"name": "../escape"}, expected=400)
             request(base, "/v1/databases", "POST", "{malformed-json", expected=400)
