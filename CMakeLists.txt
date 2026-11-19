@@ -54,6 +54,7 @@ if(CUSTOM_DB_ENGINE_BUILD_SERVER)
 
     add_executable(auth_store_test tests/auth_store_test.cpp server/auth_store.cpp server/auth_crypto.cpp)
     target_compile_features(auth_store_test PRIVATE cxx_std_17)
+    target_compile_definitions(auth_store_test PRIVATE CUSTOMDB_AUTH_STORE_TEST_FAULTS)
     target_link_libraries(auth_store_test PRIVATE nlohmann_json::nlohmann_json OpenSSL::Crypto)
     add_test(NAME auth_store_test COMMAND auth_store_test)
 
