@@ -132,6 +132,17 @@ int main(int argc, char** argv) {
             CHECK(still_locked.get_last_error().find("already open") != std::string::npos);
         }
         CHECK(db.write_data("alpha", "changed-after-backup"));
+
+        // A missing or malformed backup must fail before publication and leave
+        // the active database state and integrity unchanged.
+        CHECK(!db.restore_database(backup + ".missing"));
+        const std::string malformed_backup = backup + ".malformed";
+        { std::ofstream invalid(malformed_backup, std::ios::binary); invalid << "{not-json"; }
+        CHECK(!db.restore_database(malformed_backup));
+        CHECK(db.read_data("alpha") == "changed-after-backup");
+        CHECK(db.check_integrity());
+        std::filesystem::remove(malformed_backup, ec);
+
         CHECK(db.restore_database(backup));
         CHECK(db.read_data("alpha") == "two");
         CHECK(db.check_integrity());
