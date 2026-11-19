@@ -40,17 +40,19 @@ namespace fs = std::filesystem;
 using json = nlohmann::json;
 
 namespace {
-volatile std::sig_atomic_t shutdown_requested = 0;
+std::atomic<bool> shutdown_requested{false};
+static_assert(std::atomic<bool>::is_always_lock_free,
+              "signal shutdown flag must use lock-free atomic operations");
 
 void request_shutdown(int) {
-    shutdown_requested = 1;
+    shutdown_requested.store(true, std::memory_order_relaxed);
 }
 
 #ifdef _WIN32
 BOOL WINAPI console_control_handler(DWORD event) {
     if (event == CTRL_C_EVENT || event == CTRL_BREAK_EVENT ||
         event == CTRL_CLOSE_EVENT || event == CTRL_SHUTDOWN_EVENT) {
-        shutdown_requested = 1;
+        shutdown_requested.store(true, std::memory_order_relaxed);
         return TRUE;
     }
     return FALSE;
@@ -1066,10 +1068,10 @@ int main(int argc, char* argv[]) {
     // cpp-httplib shutdown so no non-async-signal-safe work runs in a handler.
     std::atomic<bool> listen_finished{false};
     std::thread shutdown_monitor([&server, &listen_finished]() {
-        while (!shutdown_requested && !listen_finished.load()) {
+        while (!shutdown_requested.load(std::memory_order_relaxed) && !listen_finished.load()) {
             std::this_thread::sleep_for(std::chrono::milliseconds(25));
         }
-        if (shutdown_requested) {
+        if (shutdown_requested.load(std::memory_order_relaxed)) {
             // A signal can arrive just before listen() marks the server running.
             while (!server.is_running() && !listen_finished.load()) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(5));
@@ -1089,11 +1091,11 @@ int main(int argc, char* argv[]) {
     std::signal(SIGTERM, previous_sigterm);
 #endif
 
-    if (!listen_ok && !shutdown_requested) {
+    if (!listen_ok && !shutdown_requested.load(std::memory_order_relaxed)) {
         std::cerr << "Failed to start HTTP listener.\n";
         return 1;
     }
-    if (shutdown_requested) {
+    if (shutdown_requested.load(std::memory_order_relaxed)) {
         std::cout << "CustomDB server stopped gracefully.\n";
     }
     return 0;
