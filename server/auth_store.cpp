@@ -3,7 +3,6 @@
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
-#include <cstdlib>
 #include <fstream>
 #ifndef _WIN32
 #include <fcntl.h>
@@ -241,7 +240,7 @@ void AuthStore::persist_locked() const {
         }
     }
 #ifdef CUSTOMDB_AUTH_STORE_TEST_FAULTS
-    if (std::getenv("CUSTOMDB_TEST_FAIL_AUTH_STORE_REPLACE")) {
+    if (std::filesystem::exists(file_.string() + ".fail-replace")) {
         std::filesystem::remove(temporary);
         throw std::runtime_error("injected auth store replacement failure");
     }
