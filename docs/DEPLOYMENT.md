@@ -99,7 +99,21 @@ curl -sS http://127.0.0.1:7680/v1/databases/example/backups \
 
 Restore replaces the active database state and requires explicit confirmation. Test restores in a non-production environment first. Managed backups cover database state only; plan separate secure backups for the auth store and host configuration. Keep backup copies off-host and protect them with appropriate access controls.
 
-## 7. Operational checks and limitations
+## 7. Recovery drill (staging only)
+
+Run this drill before relying on a backup for a real recovery. Use a separate staging host or isolated data directory; never experiment against the only copy of a live database.
+
+1. Record the application version, database name, expected record counts, and a few known key/document values.
+2. Create a uniquely named managed backup and confirm it appears in the backup listing. Preserve the original backup unchanged and copy an encrypted off-host copy.
+3. Stop the staging service cleanly before any host-level file copy. Confirm the process has exited and released its data-directory lock.
+4. Restore the backup into an isolated staging database using the authenticated restore endpoint and its explicit confirmation field. Do not overwrite the source backup.
+5. Run the database integrity endpoint. Compare expected record counts and sample reads with the values recorded in step 1.
+6. Restart the staging service, repeat the integrity check, and repeat sample reads to verify restart persistence.
+7. Record the restore duration, result, software version, and any discrepancies. Retain the original backup until the drill is reviewed.
+
+A successful CI fault-injection test is not a substitute for this operator-run drill. The automated snapshot-publication test also exercises a restore interrupted before atomic snapshot replacement, verifies that the published active snapshot remains unchanged, and confirms that a clean reopen can recover and restore successfully.
+
+## 8. Operational checks and limitations
 
 - Check process liveness: `GET /health/live`; a successful response means the HTTP process is responsive.
 - Check service readiness: `GET /health/ready`; this verifies the configured data directory exists and filesystem capacity can be inspected. `GET /health` remains a compatibility alias.
