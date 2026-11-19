@@ -7,6 +7,7 @@
 #include <filesystem>
 #include <fstream>
 #include <cstring>
+#include <cstdlib>
 #include <iomanip>
 #include <iterator>
 #include <mutex>
@@ -538,6 +539,80 @@ public:
         last_error_.clear();
         return result;
     }
+    bool update_documents(const std::string& collection,
+                          const std::map<std::string, std::string>& filters,
+                          const std::string& json_data) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (!valid_name(collection)) return fail("Collection name must not be empty");
+        if (filters.empty()) return fail("Document update requires at least one equality filter");
+        if (load_failed_) return fail("Database failed to load; refusing to overwrite the existing file");
+        json replacement;
+        try { replacement = json::parse(json_data); }
+        catch (const std::exception& e) { return fail(std::string("Invalid JSON document: ") + e.what()); }
+        if (!replacement.is_object()) return fail("Documents must be JSON objects");
+        json next = in_transaction_ ? transaction_state_ : state_;
+        json& view = next;
+        const auto schema_it = view["schemas"].find(collection);
+        if (schema_it != view["schemas"].end()) {
+            std::string validation_error;
+            if (!validate_document_against_schema(replacement, *schema_it, validation_error))
+                return fail("Schema validation failed: " + validation_error);
+        }
+        auto collection_it = view["documents"].find(collection);
+        if (collection_it == view["documents"].end()) return fail("No documents matched the supplied filters");
+        std::size_t changed = 0;
+        for (auto& document : *collection_it) {
+            bool matches = true;
+            for (const auto& filter : filters) {
+                const auto field = document.find(filter.first);
+                if (field == document.end()) { matches = false; break; }
+                const std::string actual = field->is_string() ? field->get<std::string>() : field->dump();
+                if (actual != filter.second) { matches = false; break; }
+            }
+            if (matches) { document = replacement; ++changed; }
+        }
+        if (changed == 0) return fail("No documents matched the supplied filters");
+        if (in_transaction_) transaction_state_ = std::move(next);
+        else {
+            if (!persist_locked(next)) return false;
+            state_ = std::move(next);
+        }
+        index_cache_.erase(collection);
+        last_error_.clear();
+        return true;
+    }
+    bool delete_documents(const std::string& collection,
+                          const std::map<std::string, std::string>& filters) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (!valid_name(collection)) return fail("Collection name must not be empty");
+        if (filters.empty()) return fail("Document deletion requires at least one equality filter");
+        if (load_failed_) return fail("Database failed to load; refusing to overwrite the existing file");
+        json next = in_transaction_ ? transaction_state_ : state_;
+        json& view = next;
+        auto collection_it = view["documents"].find(collection);
+        if (collection_it == view["documents"].end()) return fail("No documents matched the supplied filters");
+        auto& documents = *collection_it;
+        const auto original_size = documents.size();
+        documents.erase(std::remove_if(documents.begin(), documents.end(), [&](const json& document) {
+            for (const auto& filter : filters) {
+                const auto field = document.find(filter.first);
+                if (field == document.end()) return false;
+                const std::string actual = field->is_string() ? field->get<std::string>() : field->dump();
+                if (actual != filter.second) return false;
+            }
+            return true;
+        }), documents.end());
+        if (documents.size() == original_size) return fail("No documents matched the supplied filters");
+        if (documents.empty()) next["documents"].erase(collection);
+        if (in_transaction_) transaction_state_ = std::move(next);
+        else {
+            if (!persist_locked(next)) return false;
+            state_ = std::move(next);
+        }
+        index_cache_.erase(collection);
+        last_error_.clear();
+        return true;
+    }
     bool create_schema(const std::string& definition) { return set_schema(definition, true); }
     bool update_schema(const std::string& definition) { return set_schema(definition, false); }
     bool create_index(const std::string& field_name) {
@@ -735,6 +810,15 @@ private:
             fs::remove(temporary, cleanup_ec);
             return fail("Failed to write and durably flush database snapshot");
         }
+#ifdef CUSTOM_DB_ENGINE_TEST_FAULTS
+        // Isolated fault injection: fail before replacing the published snapshot.
+        const char* publish_failure = std::getenv("CUSTOMDB_TEST_FAIL_SNAPSHOT_PUBLISH");
+        if (publish_failure && std::string(publish_failure) == "1") {
+            std::error_code cleanup_ec;
+            fs::remove(temporary, cleanup_ec);
+            return fail("Injected test failure before snapshot publication");
+        }
+#endif
 #ifdef _WIN32
         if (!MoveFileExA(temporary.string().c_str(), target.string().c_str(),
                          MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
@@ -755,6 +839,13 @@ private:
     }
     bool checkpoint_locked(const json& value) {
         if (!write_snapshot_locked(value)) return false;
+#ifdef CUSTOM_DB_ENGINE_TEST_FAULTS
+        // Fault injection exists only in the dedicated test-library build.
+        // Production builds do not compile or expose this switch.
+        const char* injected_failure = std::getenv("CUSTOMDB_TEST_FAIL_CHECKPOINT_WAL_OPEN");
+        if (injected_failure && std::string(injected_failure) == "1")
+            return fail("Injected test failure before checkpoint WAL truncation");
+#endif
         std::FILE* wal = std::fopen(wal_path().c_str(), "wb");
         if (!wal) return fail("Snapshot saved, but could not truncate WAL");
         const bool flushed = durable_flush(wal);
@@ -801,6 +892,20 @@ private:
             if (ec) return fail("Cannot inspect write-ahead log: " + ec.message());
             std::FILE* wal = std::fopen(wal_path().c_str(), "ab");
             if (!wal) return fail("Cannot open write-ahead log for appending");
+#ifdef CUSTOM_DB_ENGINE_TEST_FAULTS
+            // Leave a deliberately incomplete record to exercise torn-tail recovery.
+            const char* partial_failure = std::getenv("CUSTOMDB_TEST_FAIL_WAL_APPEND_PARTIAL");
+            if (partial_failure && std::string(partial_failure) == "1") {
+                const std::size_t partial_size = std::max<std::size_t>(1, record.size() / 2);
+                const bool partial_written = std::fwrite(record.data(), 1, partial_size, wal) == partial_size;
+                const bool partial_flushed = partial_written && durable_flush(wal);
+                const bool partial_closed = std::fclose(wal) == 0;
+                load_failed_ = true;
+                if (!partial_written || !partial_flushed || !partial_closed)
+                    return fail("Injected partial WAL append failed while creating the test condition");
+                return fail("Injected partial WAL append; handle disabled until reopen");
+            }
+#endif
             const bool written = std::fwrite(record.data(), 1, record.size(), wal) == record.size();
             const bool flushed = written && durable_flush(wal);
             const bool closed = std::fclose(wal) == 0;
@@ -980,6 +1085,8 @@ bool StorageEngine::write_data(const std::string& k, const std::string& v) { ret
 std::string StorageEngine::read_data(const std::string& k) { return pimpl->read_data(k); }
 bool StorageEngine::delete_data(const std::string& k) { return pimpl->delete_data(k); }
 bool StorageEngine::write_document(const std::string& c, const std::string& d) { return pimpl->write_document(c, d); }
+bool StorageEngine::update_documents(const std::string& c, const std::map<std::string, std::string>& f, const std::string& d) { return pimpl->update_documents(c, f, d); }
+bool StorageEngine::delete_documents(const std::string& c, const std::map<std::string, std::string>& f) { return pimpl->delete_documents(c, f); }
 std::vector<std::string> StorageEngine::query_documents(const std::string& c, const std::map<std::string, std::string>& f) { return pimpl->query_documents(c, f); }
 bool StorageEngine::create_schema(const std::string& s) { return pimpl->create_schema(s); }
 bool StorageEngine::update_schema(const std::string& s) { return pimpl->update_schema(s); }

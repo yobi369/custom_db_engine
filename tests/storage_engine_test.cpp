@@ -36,6 +36,15 @@ int main(int argc, char** argv) {
         StorageEngine competing(argv[2]);
         return competing.get_last_error().find("already open") != std::string::npos ? 0 : 1;
     }
+    if (argc == 3 && std::string(argv[1]) == "--write-and-exit") {
+        StorageEngine child(argv[2]);
+        for (int i = 0; i < 70; ++i) {
+            if (!child.write_data("crash-key-" + std::to_string(i),
+                                  "crash-value-" + std::to_string(i))) return 2;
+        }
+        // Simulate abrupt process termination without running engine destructors.
+        std::_Exit(0);
+    }
     const std::string path = "storage_engine_test_db.json";
     const std::string backup = "storage_engine_test_backup.json";
     std::error_code ec;
@@ -123,6 +132,17 @@ int main(int argc, char** argv) {
             CHECK(still_locked.get_last_error().find("already open") != std::string::npos);
         }
         CHECK(db.write_data("alpha", "changed-after-backup"));
+
+        // A missing or malformed backup must fail before publication and leave
+        // the active database state and integrity unchanged.
+        CHECK(!db.restore_database(backup + ".missing"));
+        const std::string malformed_backup = backup + ".malformed";
+        { std::ofstream invalid(malformed_backup, std::ios::binary); invalid << "{not-json"; }
+        CHECK(!db.restore_database(malformed_backup));
+        CHECK(db.read_data("alpha") == "changed-after-backup");
+        CHECK(db.check_integrity());
+        std::filesystem::remove(malformed_backup, ec);
+
         CHECK(db.restore_database(backup));
         CHECK(db.read_data("alpha") == "two");
         CHECK(db.check_integrity());
@@ -136,6 +156,40 @@ int main(int argc, char** argv) {
         CHECK(reopened.query_documents("users", {{"name", "Bob"}}).size() == 1);
         CHECK(reopened.write_data("after_torn_tail", "recovery-truncated-the-tail"));
     }
+    // A torn tail must not discard earlier complete WAL commits. Recovery must
+    // replay the complete prefix, truncate only the incomplete final record, and
+    // allow a later append to remain independently recoverable.
+    const std::string torn_after_commit_path = "storage_engine_torn_after_commit.json";
+    for (const auto& suffix : {"", ".wal", ".tmp", ".lock"})
+        std::filesystem::remove(torn_after_commit_path + suffix, ec);
+    {
+        StorageEngine db(torn_after_commit_path);
+        CHECK(db.write_data("committed_one", "one"));
+        CHECK(db.write_data("committed_two", "two"));
+    }
+    {
+        std::ofstream wal(torn_after_commit_path + ".wal", std::ios::binary | std::ios::app);
+        wal << "3 deadbeef {\"record_version\":2";
+    }
+    {
+        StorageEngine recovered(torn_after_commit_path);
+        CHECK(recovered.get_last_error().empty());
+        CHECK(recovered.read_data("committed_one") == "one");
+        CHECK(recovered.read_data("committed_two") == "two");
+        CHECK(recovered.write_data("after_recovery", "three"));
+        CHECK(recovered.check_integrity());
+    }
+    {
+        StorageEngine reopened(torn_after_commit_path);
+        CHECK(reopened.get_last_error().empty());
+        CHECK(reopened.read_data("committed_one") == "one");
+        CHECK(reopened.read_data("committed_two") == "two");
+        CHECK(reopened.read_data("after_recovery") == "three");
+        CHECK(reopened.check_integrity());
+    }
+    for (const auto& suffix : {"", ".wal", ".tmp", ".lock"})
+        std::filesystem::remove(torn_after_commit_path + suffix, ec);
+
     {
         StorageEngine db(path);
         CHECK(db.begin_transaction());
@@ -163,6 +217,30 @@ int main(int argc, char** argv) {
     std::filesystem::remove(path + ".lock", ec);
     std::filesystem::remove(backup, ec);
     std::filesystem::remove(backup + ".tmp", ec);
+    const std::string crash_path = "storage_engine_crash_recovery.json";
+    for (const auto& suffix : {"", ".wal", ".tmp", ".lock"}) std::filesystem::remove(crash_path + suffix, ec);
+#ifdef _WIN32
+    const int crash_status = _spawnl(_P_WAIT, argv[0], argv[0],
+                                     "--write-and-exit", crash_path.c_str(),
+                                     static_cast<const char*>(nullptr));
+#else
+    const std::string crash_command = "\"" + std::string(argv[0]) +
+        "\" --write-and-exit \"" + crash_path + "\"";
+    const int crash_status = std::system(crash_command.c_str());
+#endif
+    CHECK(crash_status == 0);
+    {
+        StorageEngine recovered_after_crash(crash_path);
+        CHECK(recovered_after_crash.get_last_error().empty());
+        for (int i = 0; i < 70; ++i) {
+            CHECK(recovered_after_crash.read_data("crash-key-" + std::to_string(i)) ==
+                  "crash-value-" + std::to_string(i));
+            CHECK(recovered_after_crash.get_last_error().empty());
+        }
+        CHECK(recovered_after_crash.check_integrity());
+    }
+    for (const auto& suffix : {"", ".wal", ".tmp", ".lock"}) std::filesystem::remove(crash_path + suffix, ec);
+
     const std::string corrupt_path = "storage_engine_corrupt_test.json";
     std::filesystem::remove(corrupt_path, ec);
     std::filesystem::remove(corrupt_path + ".wal", ec);
@@ -183,6 +261,48 @@ int main(int argc, char** argv) {
     std::filesystem::remove(corrupt_path + ".wal", ec);
     std::filesystem::remove(corrupt_path + ".tmp", ec);
     std::filesystem::remove(corrupt_path + ".lock", ec);
+
+    // A complete WAL record with a bad checksum must fail closed. Do not expose
+    // partially replayed state through a handle whose recovery failed, and do not
+    // truncate or rewrite the corrupt complete record as an incomplete tail.
+    const std::string checksum_path = "storage_engine_checksum_mismatch.json";
+    for (const auto& suffix : {"", ".wal", ".tmp", ".lock"})
+        std::filesystem::remove(checksum_path + suffix, ec);
+    {
+        StorageEngine db(checksum_path);
+        CHECK(db.write_data("safe", "committed-before-corruption"));
+    }
+    {
+        std::ofstream wal(checksum_path + ".wal", std::ios::binary | std::ios::app);
+        CHECK(static_cast<bool>(wal));
+        const std::string payload =
+            R"({"format_version":1,"generation":2,"kv":{},"documents":{},"schemas":{},"indexes":[]})";
+        wal << "2 0000000000000000 " << payload << "\n";
+        CHECK(static_cast<bool>(wal));
+    }
+    std::string corrupt_wal_before;
+    {
+        std::ifstream wal(checksum_path + ".wal", std::ios::binary);
+        CHECK(static_cast<bool>(wal));
+        corrupt_wal_before.assign(std::istreambuf_iterator<char>(wal),
+                                  std::istreambuf_iterator<char>());
+    }
+    {
+        StorageEngine damaged(checksum_path);
+        CHECK(damaged.get_last_error().find("checksum mismatch") != std::string::npos);
+        CHECK(damaged.read_data("safe").empty());
+        CHECK(damaged.get_last_error().find("checksum mismatch") != std::string::npos);
+        CHECK(!damaged.write_data("unsafe", "must-not-commit"));
+    }
+    {
+        std::ifstream wal(checksum_path + ".wal", std::ios::binary);
+        CHECK(static_cast<bool>(wal));
+        const std::string corrupt_wal_after{std::istreambuf_iterator<char>(wal),
+                                            std::istreambuf_iterator<char>()};
+        CHECK(corrupt_wal_after == corrupt_wal_before);
+    }
+    for (const auto& suffix : {"", ".wal", ".tmp", ".lock"})
+        std::filesystem::remove(checksum_path + suffix, ec);
 
     const std::string malformed_snapshot = "storage_engine_malformed_snapshot.json";
     { std::ofstream snapshot(malformed_snapshot, std::ios::binary); snapshot << R"({"format_version":1,"generation":0,"kv":{"unsafe":42},"documents":{},"schemas":{},"indexes":[]})"; }
@@ -282,6 +402,48 @@ int main(int argc, char** argv) {
     for (const auto& suffix : {"", ".wal", ".tmp", ".lock"}) std::filesystem::remove(path + suffix, ec);
 #endif
 
+
+    // Model a crash after checkpoint snapshot publication but before WAL truncation:
+    // retain the pre-checkpoint WAL even though the newer snapshot is already durable.
+    const std::string stale_checkpoint_path = "storage_engine_stale_checkpoint.json";
+    for (const auto& suffix : {"", ".wal", ".tmp", ".lock"}) std::filesystem::remove(stale_checkpoint_path + suffix, ec);
+    std::string pre_checkpoint_wal;
+    {
+        StorageEngine db(stale_checkpoint_path);
+        for (int i = 0; i < 63; ++i)
+            CHECK(db.write_data("checkpoint-" + std::to_string(i), "value-" + std::to_string(i)));
+        {
+            std::ifstream wal(stale_checkpoint_path + ".wal", std::ios::binary);
+            pre_checkpoint_wal.assign(std::istreambuf_iterator<char>(wal), std::istreambuf_iterator<char>());
+            CHECK(!pre_checkpoint_wal.empty());
+        }
+        // The 64th committed write publishes a checkpoint and normally clears the WAL.
+        CHECK(db.write_data("checkpoint-63", "value-63"));
+        CHECK(db.check_integrity());
+    }
+    {
+        std::ofstream wal(stale_checkpoint_path + ".wal", std::ios::binary | std::ios::trunc);
+        CHECK(static_cast<bool>(wal));
+        wal.write(pre_checkpoint_wal.data(), static_cast<std::streamsize>(pre_checkpoint_wal.size()));
+        CHECK(static_cast<bool>(wal));
+    }
+    {
+        StorageEngine recovered(stale_checkpoint_path);
+        CHECK(recovered.get_last_error().empty());
+        for (int i = 0; i < 64; ++i)
+            CHECK(recovered.read_data("checkpoint-" + std::to_string(i)) == "value-" + std::to_string(i));
+        CHECK(recovered.write_data("after_stale_checkpoint_wal", "generation-65"));
+        CHECK(recovered.check_integrity());
+    }
+    {
+        StorageEngine reopened(stale_checkpoint_path);
+        CHECK(reopened.get_last_error().empty());
+        CHECK(reopened.read_data("checkpoint-0") == "value-0");
+        CHECK(reopened.read_data("checkpoint-63") == "value-63");
+        CHECK(reopened.read_data("after_stale_checkpoint_wal") == "generation-65");
+        CHECK(reopened.check_integrity());
+    }
+    for (const auto& suffix : {"", ".wal", ".tmp", ".lock"}) std::filesystem::remove(stale_checkpoint_path + suffix, ec);
 
     // Exercise recovery across a long WAL without requiring the entire log to be
     // represented as one in-memory buffer.

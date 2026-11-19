@@ -1,0 +1,1733 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "CustomDB HTTP API",
+    "version": "1.0.0",
+    "description": "HTTP API for CustomDB server. Authentication mode depends on whether identity storage is initialized; see docs/SERVER.md for security and operational limitations. Document collection query parameters are dynamic equality filters; OpenAPI represents them using a placeholder parameter because their field names are user-defined."
+  },
+  "servers": [
+    {
+      "url": "http://127.0.0.1:7680",
+      "description": "Default loopback server"
+    }
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "summary": "Backward-compatible readiness check",
+        "operationId": "getHealth",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Permission denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal error"
+          }
+        },
+        "description": "Returns 200 when the configured data directory and filesystem capacity can be inspected; otherwise returns 503.",
+        "security": []
+      }
+    },
+    "/v1/auth/login": {
+      "post": {
+        "summary": "Authenticate and issue bearer token",
+        "operationId": "postV1AuthLogin",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Permission denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal error"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          }
+        },
+        "security": []
+      }
+    },
+    "/v1/auth/users": {
+      "get": {
+        "summary": "List user accounts",
+        "operationId": "getV1AuthUsers",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Permission denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "legacyApiKey": []
+          }
+        ]
+      },
+      "post": {
+        "summary": "Create user account",
+        "operationId": "postV1AuthUsers",
+        "responses": {
+          "201": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Permission denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal error"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateUser"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "legacyApiKey": []
+          }
+        ]
+      }
+    },
+    "/v1/auth/users/{username}/grants": {
+      "put": {
+        "summary": "Replace user's database grants",
+        "operationId": "putV1AuthUsersUsernameGrants",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Permission denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal error"
+          }
+        },
+        "parameters": [
+          {
+            "name": "username",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GrantsRequest"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "legacyApiKey": []
+          }
+        ]
+      }
+    },
+    "/v1/auth/users/{username}/enabled": {
+      "put": {
+        "summary": "Enable or disable user",
+        "operationId": "putV1AuthUsersUsernameEnabled",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Permission denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal error"
+          }
+        },
+        "parameters": [
+          {
+            "name": "username",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EnabledRequest"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "legacyApiKey": []
+          }
+        ]
+      }
+    },
+    "/v1/auth/users/{username}/password": {
+      "put": {
+        "summary": "Administrator password reset",
+        "operationId": "putV1AuthUsersUsernamePassword",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Permission denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal error"
+          }
+        },
+        "parameters": [
+          {
+            "name": "username",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PasswordRequest"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "legacyApiKey": []
+          }
+        ]
+      }
+    },
+    "/v1/auth/password": {
+      "put": {
+        "summary": "Change own password",
+        "operationId": "putV1AuthPassword",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Permission denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal error"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangePasswordRequest"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "legacyApiKey": []
+          }
+        ]
+      }
+    },
+    "/v1/auth/logout": {
+      "post": {
+        "summary": "Revoke current session",
+        "operationId": "postV1AuthLogout",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Permission denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "legacyApiKey": []
+          }
+        ]
+      }
+    },
+    "/v1/auth/tokens/{token_id}/revoke": {
+      "post": {
+        "summary": "Revoke token (administrator)",
+        "operationId": "postV1AuthTokensToken_idRevoke",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Permission denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal error"
+          }
+        },
+        "parameters": [
+          {
+            "name": "token_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "legacyApiKey": []
+          }
+        ]
+      }
+    },
+    "/v1/databases": {
+      "get": {
+        "summary": "List databases",
+        "operationId": "getV1Databases",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Permission denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "legacyApiKey": []
+          }
+        ]
+      },
+      "post": {
+        "summary": "Create database",
+        "operationId": "postV1Databases",
+        "responses": {
+          "201": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Permission denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal error"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DatabaseRequest"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "legacyApiKey": []
+          }
+        ]
+      }
+    },
+    "/v1/databases/{database}/kv/{key}": {
+      "put": {
+        "summary": "Write key/value",
+        "operationId": "putV1DatabasesDatabaseKvKey",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Permission denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal error"
+          }
+        },
+        "parameters": [
+          {
+            "name": "database",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ValueRequest"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "legacyApiKey": []
+          }
+        ]
+      },
+      "get": {
+        "summary": "Read key/value",
+        "operationId": "getV1DatabasesDatabaseKvKey",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Permission denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal error"
+          }
+        },
+        "parameters": [
+          {
+            "name": "database",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "legacyApiKey": []
+          }
+        ]
+      },
+      "delete": {
+        "summary": "Delete key",
+        "operationId": "deleteV1DatabasesDatabaseKvKey",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Permission denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal error"
+          }
+        },
+        "parameters": [
+          {
+            "name": "database",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "legacyApiKey": []
+          }
+        ]
+      }
+    },
+    "/v1/databases/{database}/collections/{collection}/documents": {
+      "post": {
+        "summary": "Insert document",
+        "operationId": "postV1DatabasesDatabaseCollectionsCollectionDocuments",
+        "responses": {
+          "201": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Permission denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal error"
+          }
+        },
+        "parameters": [
+          {
+            "name": "database",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "collection",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Document"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "legacyApiKey": []
+          }
+        ]
+      },
+      "get": {
+        "summary": "Query documents using equality filters",
+        "operationId": "getV1DatabasesDatabaseCollectionsCollectionDocuments",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Permission denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal error"
+          }
+        },
+        "parameters": [
+          {
+            "name": "database",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "collection",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "field",
+            "in": "query",
+            "required": false,
+            "description": "Placeholder for user-defined equality filter parameters; pass actual field names as query parameters (for example ?status=active). Updates and deletes require at least one filter.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "description": "Query/update/delete accepts arbitrary query parameters as equality filters; mutation requires at least one filter.",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "legacyApiKey": []
+          }
+        ]
+      },
+      "put": {
+        "summary": "Update documents using equality filters",
+        "operationId": "putV1DatabasesDatabaseCollectionsCollectionDocuments",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Permission denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal error"
+          }
+        },
+        "parameters": [
+          {
+            "name": "database",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "collection",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "field",
+            "in": "query",
+            "required": false,
+            "description": "Placeholder for user-defined equality filter parameters; pass actual field names as query parameters (for example ?status=active). Updates and deletes require at least one filter.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Document"
+              }
+            }
+          }
+        },
+        "description": "Query/update/delete accepts arbitrary query parameters as equality filters; mutation requires at least one filter.",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "legacyApiKey": []
+          }
+        ]
+      },
+      "delete": {
+        "summary": "Delete documents using equality filters",
+        "operationId": "deleteV1DatabasesDatabaseCollectionsCollectionDocuments",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Permission denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal error"
+          }
+        },
+        "parameters": [
+          {
+            "name": "database",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "collection",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "field",
+            "in": "query",
+            "required": false,
+            "description": "Placeholder for user-defined equality filter parameters; pass actual field names as query parameters (for example ?status=active). Updates and deletes require at least one filter.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "description": "Query/update/delete accepts arbitrary query parameters as equality filters; mutation requires at least one filter.",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "legacyApiKey": []
+          }
+        ]
+      }
+    },
+    "/v1/databases/{database}/schemas": {
+      "post": {
+        "summary": "Create collection schema",
+        "operationId": "postV1DatabasesDatabaseSchemas",
+        "responses": {
+          "201": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Permission denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal error"
+          }
+        },
+        "parameters": [
+          {
+            "name": "database",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Document"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "legacyApiKey": []
+          }
+        ]
+      }
+    },
+    "/v1/databases/{database}/indexes": {
+      "put": {
+        "summary": "Create equality index",
+        "operationId": "putV1DatabasesDatabaseIndexes",
+        "responses": {
+          "201": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Permission denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal error"
+          }
+        },
+        "parameters": [
+          {
+            "name": "database",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FieldRequest"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "legacyApiKey": []
+          }
+        ]
+      },
+      "delete": {
+        "summary": "Drop equality index",
+        "operationId": "deleteV1DatabasesDatabaseIndexes",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Permission denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal error"
+          }
+        },
+        "parameters": [
+          {
+            "name": "database",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "field",
+            "in": "query",
+            "required": true,
+            "description": "Index field name to drop.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "legacyApiKey": []
+          }
+        ]
+      }
+    },
+    "/v1/databases/{database}/integrity": {
+      "get": {
+        "summary": "Check database integrity",
+        "operationId": "getV1DatabasesDatabaseIntegrity",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Permission denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal error"
+          }
+        },
+        "parameters": [
+          {
+            "name": "database",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "legacyApiKey": []
+          }
+        ]
+      }
+    },
+    "/v1/databases/{database}/backups": {
+      "get": {
+        "summary": "List backups",
+        "operationId": "getV1DatabasesDatabaseBackups",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Permission denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal error"
+          }
+        },
+        "parameters": [
+          {
+            "name": "database",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "legacyApiKey": []
+          }
+        ]
+      },
+      "post": {
+        "summary": "Create backup",
+        "operationId": "postV1DatabasesDatabaseBackups",
+        "responses": {
+          "201": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Permission denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal error"
+          }
+        },
+        "parameters": [
+          {
+            "name": "database",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BackupRequest"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "legacyApiKey": []
+          }
+        ]
+      }
+    },
+    "/v1/databases/{database}/backups/{backup}/restore": {
+      "post": {
+        "summary": "Restore backup (administrator; requires explicit confirmation)",
+        "operationId": "postV1DatabasesDatabaseBackupsBackupRestore",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Permission denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal error"
+          }
+        },
+        "parameters": [
+          {
+            "name": "database",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "backup",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RestoreRequest"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "legacyApiKey": []
+          }
+        ]
+      }
+    },
+    "/v1/databases/{database}/transactions": {
+      "post": {
+        "summary": "Execute atomic batch (up to 100 operations)",
+        "operationId": "postV1DatabasesDatabaseTransactions",
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Permission denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal error"
+          }
+        },
+        "parameters": [
+          {
+            "name": "database",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TransactionRequest"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "legacyApiKey": []
+          }
+        ]
+      }
+    },
+    "/health/live": {
+      "get": {
+        "summary": "Liveness check",
+        "operationId": "getHealthLive",
+        "responses": {
+          "200": {
+            "description": "HTTP process is responsive"
+          }
+        },
+        "security": []
+      }
+    },
+    "/health/ready": {
+      "get": {
+        "summary": "Readiness check",
+        "operationId": "getHealthReady",
+        "description": "Checks that the configured data directory exists and filesystem capacity can be inspected. Does not certify that every database file is healthy.",
+        "responses": {
+          "200": {
+            "description": "Service is ready",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "const": "ready"
+                    },
+                    "service": {
+                      "type": "string"
+                    },
+                    "api_version": {
+                      "type": "integer"
+                    },
+                    "checks": {
+                      "type": "object",
+                      "properties": {
+                        "data_directory": {
+                          "type": "boolean"
+                        },
+                        "filesystem_capacity": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "data_directory",
+                        "filesystem_capacity"
+                      ]
+                    },
+                    "available_bytes": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "service",
+                    "checks",
+                    "available_bytes"
+                  ]
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service is not ready"
+          }
+        },
+        "security": []
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Required after the identity store has been initialized; bearer tokens are mandatory in identity mode."
+      },
+      "legacyApiKey": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-CustomDB-Key",
+        "description": "Accepted only before an identity store has been initialized; ignored in identity mode."
+      }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string"
+          }
+        }
+      },
+      "LoginRequest": {
+        "type": "object",
+        "required": [
+          "username",
+          "password"
+        ],
+        "properties": {
+          "username": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.@-]{2,63}$",
+            "maxLength": 64
+          },
+          "password": {
+            "type": "string",
+            "format": "password",
+            "minLength": 12,
+            "maxLength": 1024,
+            "description": "Password is validated by byte length (12–1024 bytes)."
+          }
+        }
+      },
+      "DatabaseRequest": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,62}$"
+          }
+        }
+      },
+      "ValueRequest": {
+        "type": "object",
+        "required": [
+          "value"
+        ],
+        "properties": {
+          "value": {
+            "type": "string"
+          }
+        }
+      },
+      "FieldRequest": {
+        "type": "object",
+        "required": [
+          "field"
+        ],
+        "properties": {
+          "field": {
+            "type": "string"
+          }
+        }
+      },
+      "Document": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "BackupRequest": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,62}$"
+          }
+        }
+      },
+      "RestoreRequest": {
+        "type": "object",
+        "required": [
+          "confirm"
+        ],
+        "properties": {
+          "confirm": {
+            "type": "boolean",
+            "const": true
+          }
+        }
+      },
+      "EnabledRequest": {
+        "type": "object",
+        "required": [
+          "enabled"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          }
+        }
+      },
+      "PasswordRequest": {
+        "type": "object",
+        "required": [
+          "password"
+        ],
+        "properties": {
+          "password": {
+            "type": "string",
+            "format": "password",
+            "minLength": 12,
+            "maxLength": 1024,
+            "description": "Password is validated by byte length (12–1024 bytes)."
+          }
+        }
+      },
+      "ChangePasswordRequest": {
+        "type": "object",
+        "required": [
+          "current_password",
+          "new_password"
+        ],
+        "properties": {
+          "current_password": {
+            "type": "string",
+            "format": "password"
+          },
+          "new_password": {
+            "type": "string",
+            "format": "password",
+            "minLength": 12,
+            "maxLength": 1024,
+            "description": "Password is validated by byte length (12–1024 bytes)."
+          }
+        }
+      },
+      "Grant": {
+        "type": "object",
+        "required": [
+          "database",
+          "permission"
+        ],
+        "properties": {
+          "database": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9_-]{0,62}$",
+            "maxLength": 63
+          },
+          "permission": {
+            "enum": [
+              "read",
+              "write"
+            ]
+          }
+        }
+      },
+      "GrantsRequest": {
+        "type": "object",
+        "required": [
+          "grants"
+        ],
+        "properties": {
+          "grants": {
+            "type": "array",
+            "maxItems": 1000,
+            "items": {
+              "$ref": "#/components/schemas/Grant"
+            }
+          }
+        }
+      },
+      "CreateUser": {
+        "type": "object",
+        "required": [
+          "username",
+          "password",
+          "role"
+        ],
+        "properties": {
+          "username": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.@-]{2,63}$",
+            "maxLength": 64
+          },
+          "password": {
+            "type": "string",
+            "format": "password",
+            "minLength": 12,
+            "maxLength": 1024,
+            "description": "Password is validated by byte length (12–1024 bytes)."
+          },
+          "role": {
+            "enum": [
+              "admin",
+              "read_write",
+              "read_only"
+            ]
+          },
+          "grants": {
+            "type": "array",
+            "maxItems": 1000,
+            "items": {
+              "$ref": "#/components/schemas/Grant"
+            }
+          }
+        }
+      },
+      "TransactionRequest": {
+        "type": "object",
+        "required": [
+          "operations"
+        ],
+        "properties": {
+          "operations": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 100,
+            "items": {
+              "$ref": "#/components/schemas/TransactionOperation"
+            }
+          }
+        }
+      },
+      "TransactionPut": {
+        "type": "object",
+        "required": [
+          "type",
+          "key",
+          "value"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "put"
+          },
+          "key": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "TransactionDelete": {
+        "type": "object",
+        "required": [
+          "type",
+          "key"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "delete"
+          },
+          "key": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "TransactionInsertDocument": {
+        "type": "object",
+        "required": [
+          "type",
+          "collection",
+          "document"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "insert_document"
+          },
+          "collection": {
+            "type": "string",
+            "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,62}$"
+          },
+          "document": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "TransactionOperation": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/TransactionPut"
+          },
+          {
+            "$ref": "#/components/schemas/TransactionDelete"
+          },
+          {
+            "$ref": "#/components/schemas/TransactionInsertDocument"
+          }
+        ]
+      }
+    }
+  }
+}

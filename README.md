@@ -4,6 +4,12 @@ A C++17 embedded database prototype with persistent key-value storage, write-ahe
 
 > **Status:** early-stage software, not yet suitable as the sole store for critical production data. New writes use versioned JSON Patch WAL records and periodically checkpoint snapshots to JSON; legacy full-state WAL records remain readable. The exclusive lock prevents simultaneous handles, but the engine does not support concurrent multi-process access, and durability still depends on filesystem and hardware behavior. Full JSON Schema validation is not implemented.
 
+## Product roadmap
+
+CustomDB is also being developed as a reusable local database service. The optional HTTP server, named databases, bearer authentication, database-scoped roles, backups, and bounded local security-event logging are under active development on the `server-foundation` branch. The embedded engine remains the storage core; server concurrency and durability limitations still apply.
+
+See [the complete product roadmap](docs/PRODUCT_ROADMAP.md), [server/API guide](docs/SERVER.md), [controlled local test plan](docs/CONTROLLED_TEST_PLAN.md), [single-host deployment and recovery guide](docs/DEPLOYMENT.md), [security acceptance checklist](docs/SECURITY_ACCEPTANCE.md), and [OpenAPI 3.1 specification](docs/openapi.json). No other applications are connected yet, and the service is not presented as production-ready.
+
 ## Features
 
 - Persistent key-value records stored in a versioned JSON database file.
