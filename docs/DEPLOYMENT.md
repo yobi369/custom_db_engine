@@ -33,7 +33,7 @@ CUSTOMDB_DATA_DIR=./customdb-data \
 ./build/custom_db_server
 ```
 
-In identity mode, login and `GET /health` are the only public routes. Use a bearer token in the `Authorization: Bearer <token>` header. Administrators can create databases and manage users; non-admin accounts require database grants. The default token lifetime is 24 hours.
+In identity mode, login and the `/health/*` operational endpoints are public. Use `GET /health/live` for process liveness and `GET /health/ready` for the configured data-directory/filesystem readiness check; `GET /health` remains a compatibility alias for readiness. Use a bearer token in the `Authorization: Bearer <token>` header. Administrators can create databases and manage users; non-admin accounts require database grants. The default token lifetime is 24 hours.
 
 ## 4. Put TLS in front before remote access
 
@@ -101,7 +101,9 @@ Restore replaces the active database state and requires explicit confirmation. T
 
 ## 7. Operational checks and limitations
 
-- Check liveness: `GET /health`; it is not a deep dependency or database readiness check.
+- Check process liveness: `GET /health/live`; a successful response means the HTTP process is responsive.
+- Check service readiness: `GET /health/ready`; this verifies the configured data directory exists and filesystem capacity can be inspected. `GET /health` remains a compatibility alias.
+- Readiness does not verify every database file or replace `GET /v1/databases/{database}/integrity`.
 - Check database integrity: `GET /v1/databases/{database}/integrity` using an authorized token.
 - Monitor free disk space and protect the data directory from untrusted access.
 - Stop the server before host-level file copies or restores of the data directory.
