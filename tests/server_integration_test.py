@@ -2,6 +2,7 @@ import json
 from concurrent.futures import ThreadPoolExecutor
 import os
 import socket
+import signal
 import subprocess
 import sys
 import tempfile
@@ -39,7 +40,8 @@ def main():
             "CUSTOMDB_DATA_DIR": data_dir,
             "CUSTOMDB_API_KEY": "test-secret",
         })
-        process = subprocess.Popen([executable], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        process = subprocess.Popen([executable], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+                                       creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
         base = f"http://127.0.0.1:{port}"
         try:
             for _ in range(100):
@@ -154,9 +156,20 @@ def main():
                 _, value = request(base, f"/v1/databases/integration/kv/concurrent-{index}")
                 assert value["value"] == f"value-{index}"
 
+            # Exercise the supported operator shutdown path before checking durability.
+            if os.name == "nt":
+                process.send_signal(signal.CTRL_BREAK_EVENT)
+            else:
+                process.send_signal(signal.SIGTERM)
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=5)
+                raise AssertionError("CustomDB did not stop after a graceful shutdown signal")
+            assert process.returncode == 0, f"graceful shutdown returned {process.returncode}"
+
             # Restart against the same data directory and verify durable state.
-            process.terminate()
-            process.wait(timeout=5)
             process = subprocess.Popen([executable], env=env, stdout=subprocess.DEVNULL,
                                        stderr=subprocess.PIPE)
             for _ in range(100):
@@ -177,7 +190,7 @@ def main():
             assert any(item["name"] == "before-restore" for item in persisted_backups["backups"])
             _, integrity = request(base, "/v1/databases/integration/integrity")
             assert integrity["status"] == "ok"
-            print("CustomDB HTTP integration and restart persistence tests passed")
+            print("CustomDB HTTP integration, graceful shutdown, and restart persistence tests passed")
         finally:
             process.terminate()
             try:
