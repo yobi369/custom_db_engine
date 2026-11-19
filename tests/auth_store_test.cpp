@@ -87,6 +87,34 @@ int main() {
     assert(!store.authenticate_password("reader01", "new reader password"));
     assert(!store.authenticate_token(fourth.token));
 
+    // A failed atomic replacement must preserve the previous on-disk store
+    // and roll back the in-memory mutation.
+    std::ifstream before_input(file, std::ios::binary);
+    const std::string before_bytes((std::istreambuf_iterator<char>(before_input)),
+                                   std::istreambuf_iterator<char>());
+    assert(!before_bytes.empty());
+#ifdef _WIN32
+    _putenv_s("CUSTOMDB_TEST_FAIL_AUTH_STORE_REPLACE", "1");
+#else
+    setenv("CUSTOMDB_TEST_FAIL_AUTH_STORE_REPLACE", "1", 1);
+#endif
+    bool replacement_failed = false;
+    try { (void)store.create_user("failure01", "failure test password", "read_only"); }
+    catch (const std::runtime_error&) { replacement_failed = true; }
+    assert(replacement_failed);
+#ifdef _WIN32
+    _putenv_s("CUSTOMDB_TEST_FAIL_AUTH_STORE_REPLACE", "");
+#else
+    unsetenv("CUSTOMDB_TEST_FAIL_AUTH_STORE_REPLACE");
+#endif
+    std::ifstream after_input(file, std::ios::binary);
+    const std::string after_bytes((std::istreambuf_iterator<char>(after_input)),
+                                  std::istreambuf_iterator<char>());
+    assert(after_bytes == before_bytes);
+    assert(!store.find_user("failure01"));
+    for (const auto& entry : std::filesystem::directory_iterator(root))
+        assert(entry.path().filename().string().find("auth.json.tmp-") != 0);
+
     AuthStore reopened(file);
     assert(reopened.find_user("admin@example.test"));
     assert(reopened.find_user("reader01")->role == "read_only");
