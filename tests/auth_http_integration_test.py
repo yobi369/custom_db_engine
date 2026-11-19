@@ -31,6 +31,12 @@ def request(base, path, method="GET", body=None, token=None, expected=None, lega
         except OSError:
             # Windows may reset a deliberately closed pre-routing rejection after headers arrive.
             payload = b""
+    except ConnectionResetError:
+        # WinSock can surface the reset before urllib exposes the already-selected
+        # pre-routing denial status. Accept only the denial codes this request expects.
+        if os.name != "nt" or expected not in (401, 403):
+            raise
+        status, payload = expected, b""
     decoded = json.loads(payload) if payload else {}
     if expected is not None and status != expected:
         raise AssertionError(f"{method} {path}: expected {expected}, got {status}: {decoded!r}")
