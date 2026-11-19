@@ -7,6 +7,9 @@
 
 #include <algorithm>
 #include <chrono>
+#include <csignal>
+#include <atomic>
+#include <thread>
 #include <cctype>
 #include <cstdlib>
 #include <cstdio>
@@ -37,6 +40,23 @@ namespace fs = std::filesystem;
 using json = nlohmann::json;
 
 namespace {
+volatile std::sig_atomic_t shutdown_requested = 0;
+
+void request_shutdown(int) {
+    shutdown_requested = 1;
+}
+
+#ifdef _WIN32
+BOOL WINAPI console_control_handler(DWORD event) {
+    if (event == CTRL_C_EVENT || event == CTRL_BREAK_EVENT ||
+        event == CTRL_CLOSE_EVENT || event == CTRL_SHUTDOWN_EVENT) {
+        shutdown_requested = 1;
+        return TRUE;
+    }
+    return FALSE;
+}
+#endif
+
 class ServerInstanceLock {
 public:
     explicit ServerInstanceLock(const fs::path& path) {
@@ -1032,9 +1052,49 @@ int main(int argc, char* argv[]) {
     std::cout << "CustomDB server listening on " << host << ':' << port
               << " using data directory " << root << '\n';
     if (!api_key.empty()) std::cout << "API-key authentication is enabled.\n";
-    if (!server.listen(host.c_str(), port)) {
+#ifdef _WIN32
+    if (!SetConsoleCtrlHandler(console_control_handler, TRUE)) {
+        std::cerr << "Failed to register console shutdown handler.\n";
+        return 1;
+    }
+#else
+    const auto previous_sigint = std::signal(SIGINT, request_shutdown);
+    const auto previous_sigterm = std::signal(SIGTERM, request_shutdown);
+#endif
+
+    // Signal handlers only set a sig_atomic_t flag. A normal thread performs
+    // cpp-httplib shutdown so no non-async-signal-safe work runs in a handler.
+    std::atomic<bool> listen_finished{false};
+    std::thread shutdown_monitor([&server, &listen_finished]() {
+        while (!shutdown_requested && !listen_finished.load()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(25));
+        }
+        if (shutdown_requested) {
+            // A signal can arrive just before listen() marks the server running.
+            while (!server.is_running() && !listen_finished.load()) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            }
+            if (server.is_running()) server.stop();
+        }
+    });
+
+    const bool listen_ok = server.listen(host.c_str(), port);
+    listen_finished.store(true);
+    shutdown_monitor.join();
+
+#ifdef _WIN32
+    SetConsoleCtrlHandler(console_control_handler, FALSE);
+#else
+    std::signal(SIGINT, previous_sigint);
+    std::signal(SIGTERM, previous_sigterm);
+#endif
+
+    if (!listen_ok && !shutdown_requested) {
         std::cerr << "Failed to start HTTP listener.\n";
         return 1;
+    }
+    if (shutdown_requested) {
+        std::cout << "CustomDB server stopped gracefully.\n";
     }
     return 0;
 }
