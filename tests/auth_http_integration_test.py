@@ -31,12 +31,6 @@ def request(base, path, method="GET", body=None, token=None, expected=None, lega
         except OSError:
             # Windows may reset a deliberately closed pre-routing rejection after headers arrive.
             payload = b""
-    except ConnectionResetError:
-        # WinSock can surface the reset before urllib exposes the already-selected
-        # pre-routing denial status. Accept only the denial codes this request expects.
-        if os.name != "nt" or expected not in (401, 403):
-            raise
-        status, payload = expected, b""
     decoded = json.loads(payload) if payload else {}
     if expected is not None and status != expected:
         raise AssertionError(f"{method} {path}: expected {expected}, got {status}: {decoded!r}")
@@ -110,9 +104,9 @@ def main():
             request(base, "/v1/databases/alpha/kv/one",
                     auth_header="bEaReR " + writer["access_token"], expected=200)
             request(base, "/v1/databases/alpha/kv/one", token=reader["access_token"], expected=200)
-            request(base, "/v1/databases/alpha/kv/one", "PUT", {"value": "2"},
+            request(base, "/v1/databases/alpha/kv/one", "PUT",
                     token=reader["access_token"], expected=403)
-            request(base, "/v1/databases/alpha/kv/one", "PUT", {"value": "2"},
+            request(base, "/v1/databases/alpha/kv/one", "PUT",
                     token=limited["access_token"], expected=403)
             _, account_list = request(base, "/v1/auth/users", token=admin["access_token"], expected=200)
             assert all("password" not in account for account in account_list["users"])
@@ -128,15 +122,13 @@ def main():
                     token=reader["access_token"], expected=403)
             request(base, "/v1/databases/alpha/backups", "POST", {"name": "auth-snapshot"},
                     token=admin["access_token"], expected=201)
-            request(base, "/v1/databases/alpha/backups/auth-snapshot/restore", "POST", {"confirm": True},
+            request(base, "/v1/databases/alpha/backups/auth-snapshot/restore", "POST",
                     token=writer["access_token"], expected=403)
             request(base, "/v1/databases/beta/kv/one", token=writer["access_token"], expected=403)
             request(base, "/v1/databases", token=reader["access_token"], expected=403)
             request(base, "/v1/unknown", token=writer["access_token"], expected=403)
             request(base, "/v1/auth/users", token=writer["access_token"], expected=403)
             request(base, "/v1/auth/users", "POST",
-                    {"username": "blocked01", "password": "a sufficiently long password",
-                     "role": "read_only", "grants": []},
                     token=reader["access_token"], expected=403)
             request(base, "/v1/auth/users", "POST",
                     {"username": "newuser01", "password": "a sufficiently long password",
