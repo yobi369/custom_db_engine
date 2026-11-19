@@ -124,6 +124,59 @@ curl -i http://127.0.0.1:7680/v1/databases/smoke/kv/greeting \
 
 Expected result: the read returns `hello-customdb`.
 
+Insert and query a document:
+
+```bash
+curl -i -X POST http://127.0.0.1:7680/v1/databases/smoke/collections/people/documents \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"Ada","role":"engineer"}'
+
+curl -i 'http://127.0.0.1:7680/v1/databases/smoke/collections/people/documents?role=engineer' \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+Expected result: the query returns one matching document.
+
+Create a schema and an equality index, then query the indexed field:
+
+```bash
+curl -i -X POST http://127.0.0.1:7680/v1/databases/smoke/schemas \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"collection":"members","type":"object","required":["name"],"properties":{"name":{"type":"string"}}}'
+
+curl -i -X POST http://127.0.0.1:7680/v1/databases/smoke/collections/members/documents \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"Grace"}'
+
+curl -i -X PUT http://127.0.0.1:7680/v1/databases/smoke/indexes \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"field":"name"}'
+
+curl -i 'http://127.0.0.1:7680/v1/databases/smoke/collections/members/documents?name=Grace' \
+  -H "Authorization: Bearer $TOKEN"
+
+curl -i -X DELETE 'http://127.0.0.1:7680/v1/databases/smoke/indexes?field=name' \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+Execute a small atomic transaction:
+
+```bash
+curl -i -X POST http://127.0.0.1:7680/v1/databases/smoke/transactions \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"operations":[{"type":"put","key":"transaction-check","value":"committed"}]}'
+
+curl -i http://127.0.0.1:7680/v1/databases/smoke/kv/transaction-check \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+Expected result: the transaction succeeds and the key reads back as `committed`.
+
 Check database integrity:
 
 ```bash
