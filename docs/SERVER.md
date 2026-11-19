@@ -4,6 +4,8 @@ The machine-readable API contract is available in [OpenAPI 3.1 JSON](openapi.jso
 
 This is the first HTTP server layer around the existing C++ storage engine. It is intentionally a local, single-host service and does not change the embedded engine's on-disk format.
 
+For a repeatable local evaluation, follow the [controlled test plan](CONTROLLED_TEST_PLAN.md).
+
 ## Build
 
 The server is an optional target. Enabling it requires OpenSSL 3.x (libcrypto) for authentication cryptographic primitives. CMake downloads cpp-httplib when the server option is enabled and the dependency is not otherwise provided by the build environment.
