@@ -3,6 +3,7 @@
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
+#include <cstdlib>
 #include <fstream>
 #ifndef _WIN32
 #include <fcntl.h>
@@ -233,8 +234,18 @@ void AuthStore::persist_locked() const {
         const auto serialized = root.dump(2);
         output.write(serialized.data(), static_cast<std::streamsize>(serialized.size()));
         output.flush();
-        if (!output) throw std::runtime_error("cannot write temporary auth store");
+        if (!output) {
+            output.close();
+            std::filesystem::remove(temporary);
+            throw std::runtime_error("cannot write temporary auth store");
+        }
     }
+#ifdef CUSTOMDB_AUTH_STORE_TEST_FAULTS
+    if (std::getenv("CUSTOMDB_TEST_FAIL_AUTH_STORE_REPLACE")) {
+        std::filesystem::remove(temporary);
+        throw std::runtime_error("injected auth store replacement failure");
+    }
+#endif
 #ifndef _WIN32
     if (::chmod(temporary.c_str(), S_IRUSR | S_IWUSR) != 0) {
         std::filesystem::remove(temporary);
