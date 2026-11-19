@@ -14,7 +14,7 @@
   "paths": {
     "/health": {
       "get": {
-        "summary": "Health check",
+        "summary": "Backward-compatible readiness check",
         "operationId": "getHealth",
         "responses": {
           "200": {
@@ -35,7 +35,8 @@
           "500": {
             "description": "Internal error"
           }
-        }
+        },
+        "description": "Returns 200 when the configured data directory and filesystem capacity can be inspected; otherwise returns 503."
       }
     },
     "/v1/auth/login": {
@@ -1135,6 +1136,76 @@
                 "$ref": "#/components/schemas/TransactionRequest"
               }
             }
+          }
+        }
+      }
+    },
+    "/health/live": {
+      "get": {
+        "summary": "Liveness check",
+        "operationId": "getHealthLive",
+        "responses": {
+          "200": {
+            "description": "HTTP process is responsive"
+          }
+        }
+      }
+    },
+    "/health/ready": {
+      "get": {
+        "summary": "Readiness check",
+        "operationId": "getHealthReady",
+        "description": "Checks that the configured data directory exists and filesystem capacity can be inspected. Does not certify that every database file is healthy.",
+        "responses": {
+          "200": {
+            "description": "Service is ready",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "const": "ready"
+                    },
+                    "service": {
+                      "type": "string"
+                    },
+                    "api_version": {
+                      "type": "integer"
+                    },
+                    "checks": {
+                      "type": "object",
+                      "properties": {
+                        "data_directory": {
+                          "type": "boolean"
+                        },
+                        "filesystem_capacity": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "data_directory",
+                        "filesystem_capacity"
+                      ]
+                    },
+                    "available_bytes": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "service",
+                    "checks",
+                    "available_bytes"
+                  ]
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service is not ready"
           }
         }
       }
