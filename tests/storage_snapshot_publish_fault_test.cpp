@@ -89,6 +89,14 @@ int main() {
         CHECK(reopened.read_data("after-publication-failure") == "recovered");
         CHECK(reopened.check_integrity());
 
+        // A failed backup publication must not leave a partial backup artifact.
+        set_publish_failure(true);
+        CHECK(!reopened.backup_database(backup));
+        set_publish_failure(false);
+        CHECK(!std::filesystem::exists(backup));
+        CHECK(!std::filesystem::exists(backup + ".tmp"));
+        CHECK(reopened.check_integrity());
+
         // A restore publication failure must not replace the current snapshot.
         // The failed handle is deliberately disabled until a clean reopen.
         CHECK(reopened.backup_database(backup));
