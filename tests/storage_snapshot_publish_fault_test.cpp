@@ -33,9 +33,12 @@ std::string read_file(const std::string& path) {
 
 int main() {
     const std::string path = "storage_snapshot_publish_fault_test.json";
+    const std::string backup = "storage_snapshot_publish_fault_test.backup.json";
     std::error_code ec;
     for (const auto& suffix : {"", ".wal", ".tmp", ".lock"})
         std::filesystem::remove(path + suffix, ec);
+    std::filesystem::remove(backup, ec);
+    std::filesystem::remove(backup + ".tmp", ec);
 
     std::string previous_snapshot;
     {
@@ -85,10 +88,49 @@ int main() {
         CHECK(reopened.read_data("key-127") == "value-127");
         CHECK(reopened.read_data("after-publication-failure") == "recovered");
         CHECK(reopened.check_integrity());
+
+        // A restore publication failure must not replace the current snapshot.
+        // The failed handle is deliberately disabled until a clean reopen.
+        CHECK(reopened.backup_database(backup));
+        CHECK(reopened.write_data("key-0", "mutated-before-restore"));
+        const std::string active_snapshot = read_file(path);
+        CHECK(!active_snapshot.empty());
+        set_publish_failure(true);
+        CHECK(!reopened.restore_database(backup));
+        set_publish_failure(false);
+        CHECK(read_file(path) == active_snapshot);
+        CHECK(!std::filesystem::exists(path + ".tmp"));
+        CHECK(reopened.read_data("key-0").empty());
+        CHECK(!reopened.get_last_error().empty());
+    }
+
+    {
+        StorageEngine recovered_after_failed_restore(path);
+        CHECK(recovered_after_failed_restore.get_last_error().empty());
+        CHECK(recovered_after_failed_restore.read_data("key-0") == "mutated-before-restore");
+        CHECK(recovered_after_failed_restore.read_data("key-127") == "value-127");
+        CHECK(recovered_after_failed_restore.read_data("after-publication-failure") == "recovered");
+        CHECK(recovered_after_failed_restore.check_integrity());
+
+        // A subsequent clean restore must still work and publish the backup state.
+        CHECK(recovered_after_failed_restore.restore_database(backup));
+        CHECK(recovered_after_failed_restore.read_data("key-0") == "value-0");
+        CHECK(recovered_after_failed_restore.read_data("key-127") == "value-127");
+        CHECK(recovered_after_failed_restore.check_integrity());
+    }
+
+    {
+        StorageEngine final_reopen(path);
+        CHECK(final_reopen.get_last_error().empty());
+        CHECK(final_reopen.read_data("key-0") == "value-0");
+        CHECK(final_reopen.read_data("key-127") == "value-127");
+        CHECK(final_reopen.check_integrity());
     }
 
     for (const auto& suffix : {"", ".wal", ".tmp", ".lock"})
         std::filesystem::remove(path + suffix, ec);
+    std::filesystem::remove(backup, ec);
+    std::filesystem::remove(backup + ".tmp", ec);
 
     std::cout << "Snapshot publication fault recovery test passed\n";
     return 0;
