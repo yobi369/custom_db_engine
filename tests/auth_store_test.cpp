@@ -4,6 +4,7 @@
 #undef NDEBUG
 #endif
 #include <cassert>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #ifndef _WIN32
