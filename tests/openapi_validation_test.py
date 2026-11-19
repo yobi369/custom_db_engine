@@ -11,6 +11,8 @@ assert spec.get("paths"), "paths must not be empty"
 
 expected = {
     "/health": {"get"},
+    "/health/live": {"get"},
+    "/health/ready": {"get"},
     "/v1/auth/login": {"post"},
     "/v1/auth/users": {"get", "post"},
     "/v1/auth/users/{username}/grants": {"put"},
