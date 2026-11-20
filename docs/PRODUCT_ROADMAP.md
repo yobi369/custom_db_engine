@@ -1,5 +1,7 @@
 # CustomDB Product Roadmap
 
+The [Product Specification](PRODUCT_SPECIFICATION.md) is the product-level source of truth for target users, product surfaces, architecture guardrails, release maturity, and definition of done.
+
 ## Product direction
 
 CustomDB is being developed as a reusable database service and engine that can eventually support multiple independent applications. The embedded C++17 engine remains the storage core; the optional HTTP service is a separate access layer. Applications must connect through documented APIs and credentials, not share internal database files.
