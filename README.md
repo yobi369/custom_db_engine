@@ -6,9 +6,9 @@ A C++17 embedded database prototype with persistent key-value storage, write-ahe
 
 ## Product roadmap
 
-CustomDB is also being developed as a reusable local database service. The optional HTTP server, named databases, bearer authentication, database-scoped roles, backups, and bounded local security-event logging are under active development on the `server-foundation` branch. The embedded engine remains the storage core; server concurrency and durability limitations still apply.
+CustomDB is being developed as a reusable database engine and local service. The optional HTTP server, named databases, bearer authentication, database-scoped roles, backups, and bounded local security-event logging are under active development. The embedded engine remains the storage core; server concurrency and durability limitations still apply.
 
-See [the complete product roadmap](docs/PRODUCT_ROADMAP.md), [server/API guide](docs/SERVER.md), [controlled local test plan](docs/CONTROLLED_TEST_PLAN.md), [single-host deployment and recovery guide](docs/DEPLOYMENT.md), [security acceptance checklist](docs/SECURITY_ACCEPTANCE.md), and [OpenAPI 3.1 specification](docs/openapi.json). No other applications are connected yet, and the service is not presented as production-ready.
+See the [product specification](docs/PRODUCT_SPECIFICATION.md), [complete product roadmap](docs/PRODUCT_ROADMAP.md), [server/API guide](docs/SERVER.md), [controlled local test plan](docs/CONTROLLED_TEST_PLAN.md), [single-host deployment and recovery guide](docs/DEPLOYMENT.md), [security acceptance checklist](docs/SECURITY_ACCEPTANCE.md), and [OpenAPI 3.1 specification](docs/openapi.json). The service is not presented as production-ready.
 
 ## Features
 
@@ -56,7 +56,6 @@ The `custom_db_engine_example` target demonstrates basic storage and integrity c
 
 On multi-configuration generators such as Visual Studio, the executable is typically under `build/Debug` or `build/Release`.
 
-
 ## Quick start
 
 ```cpp
@@ -66,17 +65,17 @@ On multi-configuration generators such as Visual Studio, the executable is typic
 int main() {
     StorageEngine db("example.db.json");
     if (!db.write_data("greeting", "hello")) {
-        std::cerr << db.get_last_error() << '\n';
+        std::cerr << db.get_last_error() << '\\n';
         return 1;
     }
     const std::string value = db.read_data("greeting");
     if (!db.get_last_error().empty()) {
-        std::cerr << db.get_last_error() << '\n';
+        std::cerr << db.get_last_error() << '\\n';
         return 1;
     }
-    std::cout << value << '\n';
+    std::cout << value << '\\n';
     if (!db.begin_transaction() || !db.write_data("temporary", "value") || !db.rollback_transaction()) {
-        std::cerr << db.get_last_error() << '\n';
+        std::cerr << db.get_last_error() << '\\n';
         return 1;
     }
 }
@@ -115,15 +114,14 @@ target_link_libraries(my_app PRIVATE CustomDBEngine::custom_db_engine)
 
 The package exports the compiled library and public headers; the JSON dependency is needed only when building this repository.
 
-
 ## Current limitations and roadmap
 
 1. **Storage durability:** validate durability behavior under filesystem-specific fault injection and document the exact guarantees of each supported platform.
 2. **Concurrency:** exclusive single-handle locking is implemented; define and test transaction isolation before adding multi-reader or multi-writer access.
 3. **Query engine:** implement typed predicates, projections, ordering, limits, and persistent index structures and a cost-aware query planner.
 4. **Schema enforcement:** expand beyond the currently supported flat required/property-type subset and add nested-schema validation.
-5. **Storage scaling:** replace whole-file snapshots with a page-oriented storage manager and B+ tree after profiling.
-6. **Operations:** add automated backup scheduling, format migrations, fuzzing, broader fault injection, and reproducible benchmarks. ASan/UBSan CI and deterministic randomized persistence tests are now included.
+5. **Storage scaling:** replace whole-file snapshots with a page-oriented storage manager and B+ tree only after profiling.
+6. **Operations:** add format migrations, fuzzing, broader fault injection, and reproducible benchmarks.
 
 See [docs/FORMAT.md](docs/FORMAT.md) for the on-disk format and guarantees. See [CONTRIBUTING.md](CONTRIBUTING.md) for development guidance.
 
