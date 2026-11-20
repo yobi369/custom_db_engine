@@ -65,17 +65,17 @@ On multi-configuration generators such as Visual Studio, the executable is typic
 int main() {
     StorageEngine db("example.db.json");
     if (!db.write_data("greeting", "hello")) {
-        std::cerr << db.get_last_error() << '\\n';
+        std::cerr << db.get_last_error() << '\n';
         return 1;
     }
     const std::string value = db.read_data("greeting");
     if (!db.get_last_error().empty()) {
-        std::cerr << db.get_last_error() << '\\n';
+        std::cerr << db.get_last_error() << '\n';
         return 1;
     }
-    std::cout << value << '\\n';
+    std::cout << value << '\n';
     if (!db.begin_transaction() || !db.write_data("temporary", "value") || !db.rollback_transaction()) {
-        std::cerr << db.get_last_error() << '\\n';
+        std::cerr << db.get_last_error() << '\n';
         return 1;
     }
 }
