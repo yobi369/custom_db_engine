@@ -3,6 +3,8 @@
 #include <fstream>
 #include <iostream>
 #include <atomic>
+#include <chrono>
+#include <future>
 #include <thread>
 #include <vector>
 #ifdef _WIN32
@@ -93,6 +95,34 @@ int main(int argc, char** argv) {
         CHECK(db.read_data("alpha") == "transactional");
         CHECK(db.rollback_transaction());
         CHECK(db.read_data("alpha") == "two");
+
+        // Other threads must not observe or join an active transaction.
+        CHECK(db.write_data("isolation", "before"));
+        CHECK(db.begin_transaction());
+        CHECK(db.write_data("isolation", "uncommitted"));
+        std::atomic<bool> reader_started{false};
+        auto isolated_reader = std::async(std::launch::async, [&] {
+            reader_started.store(true);
+            return db.read_data("isolation");
+        });
+        while (!reader_started.load()) std::this_thread::yield();
+        CHECK(isolated_reader.wait_for(std::chrono::milliseconds(50)) == std::future_status::timeout);
+        CHECK(db.rollback_transaction());
+        CHECK(isolated_reader.get() == "before");
+
+        CHECK(db.begin_transaction());
+        CHECK(db.write_data("beta", "discarded"));
+        std::atomic<bool> writer_started{false};
+        auto isolated_writer = std::async(std::launch::async, [&] {
+            writer_started.store(true);
+            return db.write_data("outside_transaction", "independent");
+        });
+        while (!writer_started.load()) std::this_thread::yield();
+        CHECK(isolated_writer.wait_for(std::chrono::milliseconds(50)) == std::future_status::timeout);
+        CHECK(db.rollback_transaction());
+        CHECK(isolated_writer.get());
+        CHECK(db.read_data("outside_transaction") == "independent");
+
         CHECK(db.begin_transaction());
         CHECK(db.write_data("beta", "durable"));
         CHECK(db.commit_transaction());

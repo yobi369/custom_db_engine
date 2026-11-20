@@ -221,7 +221,7 @@ bool validate_document_against_schema(const json& document, const json& schema, 
 class StorageEngine::Impl {
 public:
     explicit Impl(std::string path, bool acquire_process_lock = true) : path_(std::move(path)), state_(empty_state()) {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::lock_guard<std::recursive_mutex> lock(mutex_);
         if (path_.empty()) {
             fail("Database path must not be empty");
             load_failed_ = true;
@@ -270,7 +270,7 @@ public:
 #endif
     }
     bool create_database() {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::lock_guard<std::recursive_mutex> lock(mutex_);
         if (load_failed_) return fail("Database failed to load or acquire its exclusive lock; refusing to create or overwrite files");
         if (path_.empty()) return fail("Database path must not be empty");
         std::error_code ec;
@@ -289,7 +289,7 @@ public:
         return true;
     }
     bool delete_database() {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::lock_guard<std::recursive_mutex> lock(mutex_);
         if (load_failed_) return fail("Database failed to load or acquire its exclusive lock; refusing to delete files");
         if (in_transaction_) return fail("Cannot delete database during a transaction");
         std::error_code ec1, ec2;
@@ -309,7 +309,7 @@ public:
         return true;
     }
     bool backup_database(const std::string& backup_path) {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::lock_guard<std::recursive_mutex> lock(mutex_);
         if (load_failed_) return fail("Database failed to load or acquire its exclusive lock; refusing to create a backup");
         if (in_transaction_) return fail("Cannot back up an uncommitted transaction");
         if (backup_path.empty()) return fail("Backup path must not be empty");
@@ -333,7 +333,7 @@ public:
         return true;
     }
     bool restore_database(const std::string& backup_path) {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::lock_guard<std::recursive_mutex> lock(mutex_);
         if (in_transaction_) return fail("Cannot restore during a transaction");
         if (load_failed_) return fail("Cannot restore over an unreadable database; repair or remove the active files first");
         if (backup_path.empty()) return fail("Backup path must not be empty");
@@ -371,7 +371,7 @@ public:
         return true;
     }
     bool check_integrity() {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::lock_guard<std::recursive_mutex> lock(mutex_);
         if (in_transaction_) return fail("Cannot check on-disk integrity during a transaction");
         if (load_failed_) return fail("Database load failed: " + last_error_);
         Impl verifier(path_, false);
@@ -381,7 +381,7 @@ public:
         return true;
     }
     bool write_data(const std::string& key, const std::string& value) {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::lock_guard<std::recursive_mutex> lock(mutex_);
         if (!valid_name(key)) return fail("Key must not be empty or contain NUL");
         if (load_failed_) return fail("Database failed to load; refusing to overwrite the existing file");
         if (in_transaction_) {
@@ -406,7 +406,7 @@ public:
         return true;
     }
     std::string read_data(const std::string& key) {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::lock_guard<std::recursive_mutex> lock(mutex_);
         if (load_failed_) return {};
         const json& view = readable_state_locked();
         auto it = view["kv"].find(key);
@@ -415,7 +415,7 @@ public:
         return it->get<std::string>();
     }
     bool delete_data(const std::string& key) {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::lock_guard<std::recursive_mutex> lock(mutex_);
         if (load_failed_) return fail("Database failed to load; refusing to overwrite the existing file");
         json& view = in_transaction_ ? transaction_state_ : state_;
         if (!view["kv"].contains(key)) return fail("Key not found: " + key);
@@ -440,7 +440,7 @@ public:
         return true;
     }
     bool write_document(const std::string& collection, const std::string& json_data) {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::lock_guard<std::recursive_mutex> lock(mutex_);
         if (!valid_name(collection)) return fail("Collection name must not be empty");
         if (load_failed_) return fail("Database failed to load; refusing to overwrite the existing file");
         json document;
@@ -487,7 +487,7 @@ public:
         return true;
     }
     std::vector<std::string> query_documents(const std::string& collection, const std::map<std::string, std::string>& filters) {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::lock_guard<std::recursive_mutex> lock(mutex_);
         std::vector<std::string> result;
         if (load_failed_) return result;
         const json& view = readable_state_locked();
@@ -542,7 +542,7 @@ public:
     bool update_documents(const std::string& collection,
                           const std::map<std::string, std::string>& filters,
                           const std::string& json_data) {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::lock_guard<std::recursive_mutex> lock(mutex_);
         if (!valid_name(collection)) return fail("Collection name must not be empty");
         if (filters.empty()) return fail("Document update requires at least one equality filter");
         if (load_failed_) return fail("Database failed to load; refusing to overwrite the existing file");
@@ -583,7 +583,7 @@ public:
     }
     bool delete_documents(const std::string& collection,
                           const std::map<std::string, std::string>& filters) {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::lock_guard<std::recursive_mutex> lock(mutex_);
         if (!valid_name(collection)) return fail("Collection name must not be empty");
         if (filters.empty()) return fail("Document deletion requires at least one equality filter");
         if (load_failed_) return fail("Database failed to load; refusing to overwrite the existing file");
@@ -616,7 +616,7 @@ public:
     bool create_schema(const std::string& definition) { return set_schema(definition, true); }
     bool update_schema(const std::string& definition) { return set_schema(definition, false); }
     bool create_index(const std::string& field_name) {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::lock_guard<std::recursive_mutex> lock(mutex_);
         if (!valid_name(field_name)) return fail("Index field name must not be empty");
         if (load_failed_) return fail("Database failed to load; refusing to overwrite the existing file");
         json& view = in_transaction_ ? transaction_state_ : state_;
@@ -643,7 +643,7 @@ public:
         return true;
     }
     bool drop_index(const std::string& field_name) {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::lock_guard<std::recursive_mutex> lock(mutex_);
         if (load_failed_) return fail("Database failed to load; refusing to overwrite the existing file");
         json& view = in_transaction_ ? transaction_state_ : state_;
         auto& indexes = view["indexes"];
@@ -674,35 +674,38 @@ public:
         return true;
     }
     bool begin_transaction() {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::lock_guard<std::recursive_mutex> lock(mutex_);
         if (load_failed_) return fail("Database failed to load; refusing transaction");
         if (in_transaction_) return fail("Transaction already in progress");
         transaction_state_ = state_;
         in_transaction_ = true;
+        transaction_lock_ = std::unique_lock<std::recursive_mutex>(mutex_);
         last_error_.clear();
         return true;
     }
     bool commit_transaction() {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::lock_guard<std::recursive_mutex> lock(mutex_);
         if (!in_transaction_) return fail("No transaction to commit");
         if (!persist_locked(transaction_state_)) return false;
         state_ = std::move(transaction_state_);
         transaction_state_ = json();
         in_transaction_ = false;
+        transaction_lock_.unlock();
         last_error_.clear();
         return true;
     }
     bool rollback_transaction() {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::lock_guard<std::recursive_mutex> lock(mutex_);
         if (!in_transaction_) return fail("No transaction to roll back");
         transaction_state_ = json();
         in_transaction_ = false;
         index_cache_.clear();
+        transaction_lock_.unlock();
         last_error_.clear();
         return true;
     }
     std::string error() const {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::lock_guard<std::recursive_mutex> lock(mutex_);
         return last_error_;
     }
 private:
@@ -746,7 +749,7 @@ private:
     }
     bool fail(std::string message) { last_error_ = std::move(message); return false; }
     bool set_schema(const std::string& definition, bool create) {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::lock_guard<std::recursive_mutex> lock(mutex_);
         if (load_failed_) return fail("Database failed to load; refusing to overwrite the existing file");
         json schema;
         try { schema = json::parse(definition); }
@@ -1065,7 +1068,9 @@ private:
     int lock_fd_ = -1;
 #endif
     bool lock_held_ = false;
-    mutable std::mutex mutex_;
+    mutable std::recursive_mutex mutex_;
+    // Hold the engine mutex across the complete transaction lifetime.
+    std::unique_lock<std::recursive_mutex> transaction_lock_;
     std::map<std::string, std::map<std::string, CachedIndex>> index_cache_;
     json state_;
     json transaction_state_;
